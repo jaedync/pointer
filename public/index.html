@@ -703,6 +703,169 @@
   .color-swatch:hover { transform: scale(1.15); }
   .color-swatch.active { border-color: var(--text); }
 
+  /* ─── Landing Page: The Table ─── */
+  .landing {
+    background: var(--header-bg);
+    color: var(--header-text);
+    min-height: 100vh;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    position: relative;
+    overflow: hidden;
+  }
+  .landing:not(.active) { display: none; }
+  #app:not(.active) { display: none; }
+
+  /* Felt texture */
+  .landing::before {
+    content: ''; position: absolute; inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg width='40' height='40' viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23ffffff' fill-opacity='0.02'%3E%3Ccircle cx='20' cy='20' r='1'/%3E%3C/g%3E%3C/svg%3E");
+    pointer-events: none;
+  }
+  /* Soft radial glow like a lamp over the table */
+  .landing::after {
+    content: ''; position: absolute;
+    top: -20%; left: 50%; transform: translateX(-50%);
+    width: 120%; height: 70%;
+    background: radial-gradient(ellipse, rgba(212,133,106,0.08) 0%, transparent 70%);
+    pointer-events: none;
+  }
+
+  .landing-content {
+    position: relative; z-index: 2;
+    display: flex; flex-direction: column;
+    align-items: center;
+    padding: 40px 24px;
+  }
+  .landing-logo {
+    font-family: 'Karla', sans-serif;
+    font-size: 48px; font-weight: 800;
+    color: #f0e8e2;
+    letter-spacing: -0.03em;
+    display: flex; align-items: center; gap: 12px;
+    margin-bottom: 8px;
+  }
+  .landing-logo .dot {
+    width: 14px; height: 14px;
+    background: var(--accent);
+    border-radius: 50%;
+    box-shadow: 0 0 20px rgba(212,133,106,0.4);
+  }
+  .landing-tagline {
+    font-size: 16px;
+    color: #8a7a6e;
+    margin-bottom: 48px;
+  }
+
+  /* Fanned hero cards */
+  .landing-hero-cards {
+    display: flex; justify-content: center;
+    margin-bottom: 48px;
+    position: relative;
+    height: 140px; width: 340px;
+  }
+  .landing-hero-card {
+    width: 72px; height: 100px;
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Recursive', sans-serif;
+    font-weight: 800;
+    font-variation-settings: 'CASL' 0.5;
+    font-size: 24px;
+    color: rgba(255,255,255,0.9);
+    position: absolute;
+    bottom: 0; left: 50%;
+    transform-origin: bottom center;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+    opacity: 0;
+    animation: heroCardDeal 0.6s ease-out forwards;
+  }
+  .landing-hero-card::after {
+    content: ''; position: absolute; inset: 5px;
+    border: 1.5px solid rgba(255,255,255,0.15);
+    border-radius: 8px;
+  }
+  .landing-hero-card:nth-child(1) { background: var(--pc-0); transform: translateX(-50%) rotate(-20deg); animation-delay: 0.1s; z-index: 1; }
+  .landing-hero-card:nth-child(2) { background: var(--pc-1); transform: translateX(-50%) rotate(-10deg); animation-delay: 0.2s; z-index: 2; }
+  .landing-hero-card:nth-child(3) { background: var(--pc-2); transform: translateX(-50%) rotate(0deg); animation-delay: 0.3s; z-index: 3; }
+  .landing-hero-card:nth-child(4) { background: var(--pc-3); transform: translateX(-50%) rotate(10deg); animation-delay: 0.4s; z-index: 4; }
+  .landing-hero-card:nth-child(5) { background: var(--pc-4); transform: translateX(-50%) rotate(20deg); animation-delay: 0.5s; z-index: 5; }
+
+  @keyframes heroCardDeal {
+    0% { opacity: 0; transform: translateX(-50%) rotate(0deg) translateY(30px) scale(0.7); }
+    100% { opacity: 1; }
+  }
+
+  .landing-actions {
+    display: flex; flex-direction: column;
+    gap: 16px; width: 320px;
+  }
+  .landing-btn-primary {
+    width: 100%; padding: 16px 24px;
+    border-radius: 14px; border: none;
+    background: var(--accent); color: #fff;
+    font-family: 'Karla', sans-serif;
+    font-size: 16px; font-weight: 800;
+    cursor: pointer; transition: all 0.2s;
+    box-shadow: 0 4px 24px rgba(212,133,106,0.35);
+    position: relative; overflow: hidden;
+  }
+  .landing-btn-primary::before {
+    content: ''; position: absolute; inset: 0;
+    background: linear-gradient(135deg, rgba(255,255,255,0.15), transparent);
+    pointer-events: none;
+  }
+  .landing-btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 32px rgba(212,133,106,0.45);
+  }
+  .landing-divider {
+    display: flex; align-items: center; gap: 16px;
+    color: #6a5e54; font-size: 12px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.08em;
+  }
+  .landing-divider::before, .landing-divider::after {
+    content: ''; flex: 1; height: 1px;
+    background: rgba(255,255,255,0.08);
+  }
+  .landing-join-row { display: flex; gap: 8px; }
+  .landing-code-input {
+    flex: 1; padding: 14px 16px;
+    border-radius: 12px;
+    border: 1px solid rgba(255,255,255,0.1);
+    background: rgba(255,255,255,0.05);
+    font-family: 'Recursive', sans-serif;
+    font-size: 16px; font-weight: 600;
+    font-variation-settings: 'CASL' 0.3;
+    color: #f0e8e2;
+    text-align: center;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  .landing-code-input::placeholder {
+    color: #6a5e54; letter-spacing: 0.05em;
+    text-transform: none; font-variation-settings: 'CASL' 0;
+  }
+  .landing-code-input:focus { border-color: var(--accent); }
+  .landing-btn-join {
+    padding: 14px 24px; border-radius: 12px;
+    border: 1px solid rgba(255,255,255,0.12);
+    background: rgba(255,255,255,0.05);
+    color: #c0aa98;
+    font-family: 'Karla', sans-serif;
+    font-size: 14px; font-weight: 700;
+    cursor: pointer; transition: all 0.15s;
+  }
+  .landing-btn-join:hover { border-color: var(--accent); color: var(--accent); }
+
+  .landing-footer {
+    position: absolute; bottom: 24px;
+    font-size: 12px; color: #5a4e44;
+    z-index: 2;
+  }
+
   /* ─── Responsive: Mobile ─── */
   @media (max-width: 768px) {
     .game-main {
@@ -737,6 +900,10 @@
     }
     .stage-card { width: 60px; height: 84px; }
     .lobby-card { width: calc(100% - 32px); margin: 16px; }
+    .landing-logo { font-size: 36px; }
+    .landing-hero-cards { width: 280px; height: 120px; }
+    .landing-hero-card { width: 56px; height: 78px; font-size: 18px; }
+    .landing-actions { width: 100%; max-width: 320px; }
   }
 </style>
 </head>
@@ -811,7 +978,36 @@
 </div>
 
 <!-- ═══════════════════════════════════════
-     GAME APP (always in DOM, behind overlays)
+     LANDING PAGE: The Table
+     ═══════════════════════════════════════ -->
+<div class="landing active" id="landing">
+  <div class="landing-content">
+    <div class="landing-logo">Pointer<span class="dot"></span></div>
+    <div class="landing-tagline">Estimation made simple</div>
+
+    <div class="landing-hero-cards">
+      <div class="landing-hero-card">XS</div>
+      <div class="landing-hero-card">S</div>
+      <div class="landing-hero-card">M</div>
+      <div class="landing-hero-card">L</div>
+      <div class="landing-hero-card">XL</div>
+    </div>
+
+    <div class="landing-actions">
+      <button class="landing-btn-primary" onclick="showLobbyModal()">Start a new game</button>
+      <div class="landing-divider">or join one</div>
+      <div class="landing-join-row">
+        <input class="landing-code-input" id="landing-room-code" type="text" placeholder="Room code" maxlength="5" onkeydown="if(event.key==='Enter') joinFromLanding()">
+        <button class="landing-btn-join" onclick="joinFromLanding()">Join</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="landing-footer">Free forever · No accounts · No tracking</div>
+</div>
+
+<!-- ═══════════════════════════════════════
+     GAME APP
      ═══════════════════════════════════════ -->
 <div id="app">
   <div class="header">
@@ -981,6 +1177,17 @@
     }
   }
 
+  // ─── View Switching ──────────────────────────────────────────────────────────
+  function showLanding() {
+    document.getElementById('landing').classList.add('active');
+    document.getElementById('app').classList.remove('active');
+    hideModals();
+  }
+  function showGame() {
+    document.getElementById('landing').classList.remove('active');
+    document.getElementById('app').classList.add('active');
+  }
+
   // ─── Modal Functions ──────────────────────────────────────────────────────────
   function showLobbyModal() {
     document.getElementById('lobby-overlay').classList.remove('hidden');
@@ -994,6 +1201,11 @@
   function hideModals() {
     document.getElementById('lobby-overlay').classList.add('hidden');
     document.getElementById('join-overlay').classList.add('hidden');
+  }
+  function joinFromLanding() {
+    const code = document.getElementById('landing-room-code').value.trim();
+    if (!code) { document.getElementById('landing-room-code').focus(); return; }
+    location.hash = `#/join/${code}`;
   }
   function createGame() {
     const name = document.getElementById('lobby-game-name').value.trim();
@@ -1232,11 +1444,13 @@
   function handleRoute() {
     const hash = location.hash || '#/';
     if (hash === '#/' || hash === '') {
-      showLobbyModal();
+      showLanding();
     } else if (hash.startsWith('#/join/')) {
       const roomId = hash.split('/')[2];
+      showLanding();
       showJoinModal(roomId);
     } else if (hash.startsWith('#/room/')) {
+      showGame();
       hideModals();
     }
   }
