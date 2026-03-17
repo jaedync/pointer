@@ -252,18 +252,39 @@
   }
   .btn-leave:hover { border-color: #c76a6a; color: #c76a6a; }
 
-  /* Countdown overlay */
+  /* Countdown overlay — positioned over the stage without displacing content */
+  .countdown-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    background: rgba(250, 245, 242, 0.85);
+    backdrop-filter: blur(4px);
+    z-index: 10;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s;
+  }
+  .countdown-overlay.show {
+    opacity: 1;
+    pointer-events: auto;
+  }
   .countdown-number {
     font-family: 'Recursive', sans-serif;
-    font-size: 72px; font-weight: 800;
+    font-size: 96px; font-weight: 800;
     color: var(--accent);
     font-variation-settings: 'CASL' 0.5;
     line-height: 1;
-    animation: countdownPop 1s ease-out;
+    animation: countdownPop 0.8s ease-out;
+  }
+  .countdown-label {
+    margin-top: 12px;
+    font-size: 14px; font-weight: 600;
+    color: var(--text-muted);
   }
   @keyframes countdownPop {
-    0% { transform: scale(1.5); opacity: 0; }
-    30% { transform: scale(1); opacity: 1; }
+    0% { transform: scale(2); opacity: 0; }
+    40% { transform: scale(1); opacity: 1; }
     100% { transform: scale(1); opacity: 1; }
   }
 
@@ -527,6 +548,8 @@
 
   .stage-action {
     margin-top: 36px; position: relative; z-index: 1;
+    min-height: 52px;
+    display: flex; align-items: center; justify-content: center;
   }
   .btn-reveal {
     padding: 14px 44px; border-radius: 14px; border: none;
@@ -565,6 +588,7 @@
     text-align: center; margin-top: 16px;
     position: relative; z-index: 1;
     opacity: 0; transition: opacity 0.4s;
+    min-height: 70px;
   }
   .big-average.show { opacity: 1; }
   .big-average-label {
@@ -636,6 +660,24 @@
     z-index: 20 !important;
     transform: rotate(0deg) translateY(-22px) scale(1.1) !important;
     box-shadow: 0 10px 32px rgba(212,133,106,0.35);
+  }
+  /* Locked hand — disable hover/click during countdown and revealed */
+  .hand-locked {
+    pointer-events: none;
+    opacity: 0.5;
+  }
+  .hand-locked .hand-card:hover {
+    transform: none !important;
+    border-color: var(--border) !important;
+    color: var(--text-secondary) !important;
+    box-shadow: none !important;
+  }
+
+  /* Stage hint text for non-host players */
+  .stage-hint {
+    color: var(--text-muted);
+    font-size: 13px;
+    font-weight: 500;
   }
 
   /* ─── Color picker popover ─── */
@@ -1079,7 +1121,11 @@
     }).join('');
 
     if (state.room.revealed) {
-      action.innerHTML = '<button class="btn-new-round" onclick="newRound()">Start New Round</button>';
+      if (isHost) {
+        action.innerHTML = '<button class="btn-new-round" onclick="newRound()">Start New Round</button>';
+      } else {
+        action.innerHTML = '<span class="stage-hint">Waiting for host to start new round...</span>';
+      }
       const numericVotes = state.room.players.map(p => p.vote).filter(v => v && v !== '?' && v !== '—');
       avg.classList.add('show');
       if (numericVotes.length > 0 && !isNaN(Number(numericVotes[0]))) {
@@ -1095,14 +1141,20 @@
       }
     } else {
       avg.classList.remove('show');
-      const allVoted = votedCount === totalCount && totalCount > 0;
-      action.innerHTML = `<button class="btn-reveal ${allVoted ? 'all-in' : ''}" onclick="reveal()" ${votedCount === 0 ? 'disabled style="opacity:0.5;cursor:default;"' : ''}>Reveal Cards</button>`;
+      if (isHost) {
+        const allVoted = votedCount === totalCount && totalCount > 0;
+        action.innerHTML = `<button class="btn-reveal ${allVoted ? 'all-in' : ''}" onclick="reveal()" ${votedCount === 0 ? 'disabled style="opacity:0.5;cursor:default;"' : ''}>Reveal Cards</button>`;
+      } else {
+        action.innerHTML = '<span class="stage-hint">Waiting for host to reveal...</span>';
+      }
     }
   }
 
   function renderHand() {
     const container = document.getElementById('hand-cards');
     const system = state.room.votingSystem;
+    const locked = state.room.revealed || state.countdown;
+    container.classList.toggle('hand-locked', !!locked);
     container.innerHTML = system.map(value => {
       const picked = state.myVote === value ? 'picked' : '';
       return `<div class="hand-card ${picked}" onclick="pickCard('${value}')">${value}</div>`;
@@ -1111,7 +1163,7 @@
 
   // ─── Action Functions ─────────────────────────────────────────────────────────
   function pickCard(value) {
-    if (state.room.revealed) return;
+    if (state.room.revealed || state.countdown) return;
     if (state.myVote === value) {
       state.myVote = null;
       send({ type: 'clear-vote' });
@@ -1147,11 +1199,21 @@
   }
 
   function renderCountdown() {
-    const action = document.getElementById('stage-action');
-    const status = document.getElementById('stage-status');
+    let overlay = document.getElementById('countdown-overlay');
     if (state.countdown) {
-      status.innerHTML = `<span class="count">${escapeHtml(state.countdownBy)}</span> is revealing...`;
-      action.innerHTML = `<div class="countdown-number">${state.countdown}</div>`;
+      if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.id = 'countdown-overlay';
+        overlay.className = 'countdown-overlay';
+        document.querySelector('.stage').appendChild(overlay);
+      }
+      overlay.innerHTML = `<div class="countdown-number">${state.countdown}</div><div class="countdown-label">${escapeHtml(state.countdownBy)} is revealing...</div>`;
+      overlay.classList.add('show');
+      // Also lock the hand
+      const handCards = document.getElementById('hand-cards');
+      if (handCards) handCards.classList.add('hand-locked');
+    } else if (overlay) {
+      overlay.classList.remove('show');
     }
   }
 

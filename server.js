@@ -191,7 +191,7 @@ wss.on('connection', (ws) => {
       case 'reveal': {
         if (!currentRoom || !currentPlayerId) return;
         const player = currentRoom.players.get(currentPlayerId);
-        if (!player) return;
+        if (!player || !player.isHost) return;
         if (currentRoom.revealed || currentRoom._countdownTimer) return;
         currentRoom.lastActivity = Date.now();
 
@@ -226,7 +226,7 @@ wss.on('connection', (ws) => {
       case 'new-round': {
         if (!currentRoom || !currentPlayerId) return;
         const player = currentRoom.players.get(currentPlayerId);
-        if (!player) return;
+        if (!player || !player.isHost) return;
         currentRoom.lastActivity = Date.now();
         currentRoom.revealed = false;
         for (const p of currentRoom.players.values()) {
