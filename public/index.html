@@ -646,7 +646,7 @@
 <div class="lobby-overlay" id="lobby-overlay">
   <div class="lobby-card">
     <div class="lobby-header">
-      <button class="lobby-close">&times;</button>
+      <button class="lobby-close" onclick="hideModals()">&times;</button>
       <div class="lobby-logo">Pointer<span class="logo-dot"></span></div>
       <div class="lobby-subtitle">Free, fast scrum poker for your team</div>
     </div>
@@ -664,7 +664,7 @@
       <div class="field">
         <label class="field-label">Voting system</label>
         <div class="field-select-wrap">
-          <select class="field-select" id="lobby-voting-system">
+          <select class="field-select" id="lobby-voting-system" onchange="updateVotingPreview()">
             <option value="tshirt" selected>T-Shirt Sizes</option>
             <option value="fib">Fibonacci</option>
             <option value="powers">Powers of 2</option>
@@ -682,7 +682,7 @@
         </div>
       </div>
 
-      <button class="lobby-btn" id="btn-create-game">Create Game</button>
+      <button class="lobby-btn" id="btn-create-game" onclick="createGame()">Create Game</button>
     </div>
   </div>
 </div>
@@ -702,7 +702,7 @@
         <input class="field-input" id="join-player-name" type="text" placeholder="e.g. Your name">
       </div>
 
-      <button class="lobby-btn" id="btn-join-game">Join Game</button>
+      <button class="lobby-btn" id="btn-join-game" onclick="joinGame()">Join Game</button>
     </div>
   </div>
 </div>
@@ -717,7 +717,7 @@
       <span class="room-name" id="room-name-display">Waiting...</span>
     </div>
     <div class="header-right">
-      <button class="btn-invite" id="btn-invite">Copy invite link</button>
+      <button class="btn-invite" id="btn-invite" onclick="copyInviteLink()">Copy invite link</button>
       <div class="user-pill">
         <div class="user-av" id="user-av">?</div>
         <span id="user-name-display"></span>
@@ -777,5 +777,301 @@
   </div>
 </div>
 
+<script>
+  // ─── Constants ───────────────────────────────────────────────────────────────
+  const VOTING_SYSTEMS = {
+    tshirt: ['XS', 'S', 'M', 'L', 'XL', '?'],
+    fib: ['0', '1', '2', '3', '5', '8', '13', '21', '?'],
+    powers: ['1', '2', '4', '8', '16', '32', '?'],
+    simple: ['1', '2', '3', '4', '5', '?'],
+  };
+  const COLORS = ['#d4856a','#6aad8c','#7b8fc7','#c9a84c','#b07cc7','#c76a6a','#6ab5c7','#8aad5c','#c78a5c','#6a7ec7','#c76a9a','#5cad9a'];
+
+  // ─── State + WebSocket ────────────────────────────────────────────────────────
+  const state = {
+    connected: false,
+    playerId: null,
+    room: null,
+    myVote: null,
+  };
+
+  let ws = null;
+  let reconnectTimer = null;
+
+  function connect() {
+    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    ws = new WebSocket(`${protocol}//${location.host}`);
+    ws.onopen = () => {
+      state.connected = true;
+      const hash = location.hash;
+      if (hash.startsWith('#/room/') && state.room) {
+        send({ type: 'join-room', roomId: state.room.id, playerName: getMyName() });
+      }
+    };
+    ws.onmessage = (e) => handleMessage(JSON.parse(e.data));
+    ws.onclose = () => {
+      state.connected = false;
+      reconnectTimer = setTimeout(connect, 2000);
+    };
+  }
+
+  function send(msg) {
+    if (ws && ws.readyState === 1) ws.send(JSON.stringify(msg));
+  }
+
+  function getMyName() {
+    if (!state.room || !state.playerId) return '';
+    const me = state.room.players.find(p => p.id === state.playerId);
+    return me ? me.name : '';
+  }
+
+  // ─── Message Handler ──────────────────────────────────────────────────────────
+  function handleMessage(msg) {
+    switch (msg.type) {
+      case 'room-created':
+        state.playerId = msg.playerId;
+        location.hash = `#/room/${msg.roomId}`;
+        break;
+      case 'joined':
+        state.playerId = msg.playerId;
+        location.hash = `#/room/${msg.roomId}`;
+        hideModals();
+        break;
+      case 'room-state': {
+        const wasRevealed = state.room?.revealed;
+        state.room = msg.room;
+        if (wasRevealed && !msg.room.revealed) state.myVote = null;
+        render();
+        break;
+      }
+      case 'error':
+        alert(msg.message);
+        break;
+    }
+  }
+
+  // ─── Modal Functions ──────────────────────────────────────────────────────────
+  function showLobbyModal() {
+    document.getElementById('lobby-overlay').classList.remove('hidden');
+    document.getElementById('join-overlay').classList.add('hidden');
+  }
+  function showJoinModal(roomId) {
+    document.getElementById('join-overlay').classList.remove('hidden');
+    document.getElementById('lobby-overlay').classList.add('hidden');
+    document.getElementById('join-overlay').dataset.roomId = roomId;
+  }
+  function hideModals() {
+    document.getElementById('lobby-overlay').classList.add('hidden');
+    document.getElementById('join-overlay').classList.add('hidden');
+  }
+  function createGame() {
+    const name = document.getElementById('lobby-game-name').value.trim();
+    const playerName = document.getElementById('lobby-player-name').value.trim();
+    const votingSystem = document.getElementById('lobby-voting-system').value;
+    if (!playerName) { document.getElementById('lobby-player-name').focus(); return; }
+    send({ type: 'create-room', name: name || 'Planning Poker', playerName, votingSystem });
+  }
+  function joinGame() {
+    const playerName = document.getElementById('join-player-name').value.trim();
+    const roomId = document.getElementById('join-overlay').dataset.roomId;
+    if (!playerName) { document.getElementById('join-player-name').focus(); return; }
+    send({ type: 'join-room', roomId, playerName });
+  }
+  function updateVotingPreview() {
+    const sel = document.getElementById('lobby-voting-system');
+    const preview = document.getElementById('system-preview');
+    preview.innerHTML = VOTING_SYSTEMS[sel.value].map(v => `<span class="system-chip">${v}</span>`).join('');
+  }
+
+  // ─── Render Functions ─────────────────────────────────────────────────────────
+  function render() {
+    if (!state.room) return;
+    renderHeader();
+    renderSidebar();
+    renderStage();
+    renderHand();
+  }
+
+  function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  function renderHeader() {
+    document.getElementById('room-name-display').textContent = state.room.name;
+    const me = state.room.players.find(p => p.id === state.playerId);
+    if (me) {
+      document.getElementById('user-av').style.background = COLORS[me.color];
+      document.getElementById('user-av').textContent = me.name[0].toUpperCase();
+      document.getElementById('user-name-display').textContent = me.name;
+    }
+  }
+
+  function renderSidebar() {
+    const container = document.getElementById('players-list');
+    container.innerHTML = state.room.players.map(p => {
+      const isMe = p.id === state.playerId;
+      const color = COLORS[p.color];
+      let indicator = '';
+      if (state.room.revealed && p.vote) {
+        indicator = `<div class="player-vote-indicator revealed-vote"><span class="vi-val">${escapeHtml(String(p.vote))}</span></div>`;
+      } else if (p.vote === 'voted') {
+        indicator = `<div class="player-vote-indicator voted" style="background:${color}"><span class="vi-check">✓</span></div>`;
+      } else {
+        indicator = `<div class="player-vote-indicator waiting"></div>`;
+      }
+      const roleText = isMe ? (p.isHost ? 'Host · You' : 'You') : '';
+      return `
+        <div class="player-row ${isMe ? 'is-you' : ''}">
+          <div class="player-avatar" style="background:${color}">${p.name[0].toUpperCase()}</div>
+          <div class="player-info">
+            <div class="player-name-text">${escapeHtml(p.name)}</div>
+            ${roleText ? `<div class="player-role">${roleText}</div>` : ''}
+          </div>
+          ${indicator}
+        </div>
+      `;
+    }).join('');
+    document.getElementById('players-count').textContent = `Players · ${state.room.players.length}`;
+    renderConsensus();
+  }
+
+  function renderConsensus() {
+    const total = state.room.roundNumber;
+    const consensus = state.room.consensusCount;
+    const circumference = 2 * Math.PI * 22;
+    document.getElementById('consensus-num').textContent = consensus;
+    document.getElementById('consensus-den').textContent = `of ${total}`;
+    document.getElementById('consensus-desc').textContent =
+      total === 0 ? 'No rounds played yet' : `${consensus} of ${total} rounds reached agreement`;
+    const pct = total === 0 ? 0 : consensus / total;
+    document.getElementById('consensus-ring-fill').setAttribute('stroke-dashoffset', circumference * (1 - pct));
+  }
+
+  function renderStage() {
+    const cards = document.getElementById('stage-cards');
+    const status = document.getElementById('stage-status');
+    const action = document.getElementById('stage-action');
+    const avg = document.getElementById('big-average');
+    const votedCount = state.room.players.filter(p => p.vote).length;
+    const totalCount = state.room.players.length;
+    const me = state.room.players.find(p => p.id === state.playerId);
+    const isHost = me?.isHost;
+
+    if (state.room.revealed) {
+      status.innerHTML = 'Results';
+    } else {
+      status.innerHTML = `<span class="count">${votedCount}</span> of ${totalCount} voted`;
+    }
+
+    cards.innerHTML = state.room.players.map((p, i) => {
+      const color = COLORS[p.color];
+      const isWaiting = !p.vote || p.vote === null;
+      const displayVote = state.room.revealed ? (p.vote || '—') : '';
+      const flipClass = state.room.revealed ? 'flip' : '';
+      const delay = state.room.revealed ? `transition-delay: ${i * 0.1}s` : '';
+      return `
+        <div class="stage-card" style="animation-delay:${i * 0.06}s">
+          <div class="stage-card-inner ${flipClass}" style="${delay}">
+            <div class="stage-card-front ${isWaiting && !state.room.revealed ? 'sc-waiting' : ''}" style="background:${isWaiting && !state.room.revealed ? '' : color}">
+              <span class="sc-init">${isWaiting && !state.room.revealed ? '?' : p.name[0].toUpperCase()}</span>
+            </div>
+            <div class="stage-card-back">
+              <div class="sc-color-bar" style="background:${color}"></div>
+              <span class="sc-value">${displayVote}</span>
+              <span class="sc-name">${escapeHtml(p.name)}</span>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    if (state.room.revealed) {
+      if (isHost) {
+        action.innerHTML = '<button class="btn-new-round" onclick="newRound()">Start New Round</button>';
+      } else {
+        action.innerHTML = '<span style="color:var(--text-muted);font-size:13px;">Waiting for host to start new round...</span>';
+      }
+      const numericVotes = state.room.players.map(p => p.vote).filter(v => v && v !== '?' && v !== '—');
+      avg.classList.add('show');
+      if (numericVotes.length > 0 && !isNaN(Number(numericVotes[0]))) {
+        const sum = numericVotes.reduce((a, b) => a + Number(b), 0);
+        document.getElementById('avg-label').textContent = 'Average';
+        document.getElementById('avg-value').textContent = (sum / numericVotes.length).toFixed(1);
+      } else {
+        const counts = {};
+        numericVotes.forEach(v => { counts[v] = (counts[v] || 0) + 1; });
+        const mode = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+        document.getElementById('avg-label').textContent = 'Consensus';
+        document.getElementById('avg-value').textContent = mode ? mode[0] : '—';
+      }
+    } else {
+      avg.classList.remove('show');
+      if (isHost) {
+        const allVoted = votedCount === totalCount && totalCount > 0;
+        action.innerHTML = `<button class="btn-reveal ${allVoted ? 'all-in' : ''}" onclick="reveal()" ${votedCount === 0 ? 'disabled style="opacity:0.5;cursor:default;"' : ''}>Reveal Cards</button>`;
+      } else {
+        action.innerHTML = '<span style="color:var(--text-muted);font-size:13px;">Waiting for host to reveal...</span>';
+      }
+    }
+  }
+
+  function renderHand() {
+    const container = document.getElementById('hand-cards');
+    const system = state.room.votingSystem;
+    container.innerHTML = system.map(value => {
+      const picked = state.myVote === value ? 'picked' : '';
+      return `<div class="hand-card ${picked}" onclick="pickCard('${value}')">${value}</div>`;
+    }).join('');
+  }
+
+  // ─── Action Functions ─────────────────────────────────────────────────────────
+  function pickCard(value) {
+    if (state.room.revealed) return;
+    if (state.myVote === value) {
+      state.myVote = null;
+      send({ type: 'clear-vote' });
+    } else {
+      state.myVote = value;
+      send({ type: 'vote', value });
+    }
+    renderHand();
+  }
+
+  function reveal() { send({ type: 'reveal' }); }
+  function newRound() { send({ type: 'new-round' }); }
+
+  function copyInviteLink() {
+    const url = `${location.origin}${location.pathname}#/join/${state.room.id}`;
+    navigator.clipboard.writeText(url).then(() => {
+      const btn = document.getElementById('btn-invite');
+      const orig = btn.textContent;
+      btn.textContent = 'Copied!';
+      setTimeout(() => { btn.textContent = orig; }, 1500);
+    });
+  }
+
+  function changeColor(colorIndex) {
+    send({ type: 'change-color', colorIndex });
+  }
+
+  // ─── Hash Router + Init ───────────────────────────────────────────────────────
+  function handleRoute() {
+    const hash = location.hash || '#/';
+    if (hash === '#/' || hash === '') {
+      showLobbyModal();
+    } else if (hash.startsWith('#/join/')) {
+      const roomId = hash.split('/')[2];
+      showJoinModal(roomId);
+    } else if (hash.startsWith('#/room/')) {
+      hideModals();
+    }
+  }
+
+  window.addEventListener('hashchange', handleRoute);
+  connect();
+  handleRoute();
+</script>
 </body>
 </html>
