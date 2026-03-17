@@ -1,0 +1,979 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pointer – Scrum Poker</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Karla:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&family=Recursive:wght,CASL,MONO@300..800,0..1,0..1&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #faf5f2;
+    --surface: #ffffff;
+    --header-bg: #2e2320;
+    --header-text: #f0e8e2;
+    --accent: #d4856a;
+    --accent-hover: #c4755a;
+    --accent-soft: rgba(212,133,106,0.1);
+    --accent-glow: rgba(212,133,106,0.25);
+    --text: #3a2e28;
+    --text-secondary: #7a6e65;
+    --text-muted: #b5a898;
+    --border: #e8ddd4;
+    --card-face: #fffbf8;
+    --waiting: #d4c4b8;
+  }
+
+  /* Deterministic player color palette — 12 distinct, warm-friendly colors */
+  :root {
+    --pc-0: #d4856a; /* terracotta */
+    --pc-1: #6aad8c; /* sage */
+    --pc-2: #7b8fc7; /* periwinkle */
+    --pc-3: #c9a84c; /* gold */
+    --pc-4: #b07cc7; /* lavender */
+    --pc-5: #c76a6a; /* rose */
+    --pc-6: #6ab5c7; /* sky */
+    --pc-7: #8aad5c; /* olive */
+    --pc-8: #c78a5c; /* amber */
+    --pc-9: #6a7ec7; /* slate blue */
+    --pc-10: #c76a9a; /* magenta */
+    --pc-11: #5cad9a; /* teal */
+  }
+
+  body {
+    font-family: 'Instrument Sans', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow-x: hidden;
+  }
+
+  /* ═══════════════════════════════════════
+     LOBBY MODAL OVERLAY
+     ═══════════════════════════════════════ */
+  .lobby-overlay {
+    position: fixed; inset: 0; z-index: 60;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(46, 35, 32, 0.5);
+    backdrop-filter: blur(6px);
+    opacity: 1;
+    transition: opacity 0.3s;
+  }
+  .lobby-overlay.hidden {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .lobby-card {
+    position: relative;
+    z-index: 1;
+    width: 440px;
+    background: var(--surface);
+    border-radius: 24px;
+    box-shadow: 0 16px 64px rgba(0,0,0,0.18), 0 2px 8px rgba(0,0,0,0.08);
+    overflow: hidden;
+    transform: scale(1) translateY(0);
+    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.3s;
+  }
+  .lobby-overlay.hidden .lobby-card {
+    transform: scale(0.95) translateY(10px);
+    opacity: 0;
+  }
+
+  .lobby-header {
+    background: var(--header-bg);
+    padding: 28px 32px 24px;
+    text-align: center;
+  }
+  .lobby-logo {
+    font-family: 'Karla', sans-serif;
+    font-size: 26px; font-weight: 800;
+    color: var(--header-text);
+    letter-spacing: -0.02em;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    margin-bottom: 8px;
+  }
+  .lobby-logo .logo-dot {
+    width: 10px; height: 10px;
+    background: var(--accent);
+    border-radius: 50%;
+  }
+  .lobby-subtitle {
+    font-size: 14px; color: #8a7a6e;
+  }
+
+  .lobby-body {
+    padding: 32px;
+    display: flex; flex-direction: column; gap: 24px;
+  }
+
+  .field {
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .field-label {
+    font-size: 12px; font-weight: 700;
+    letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--text-muted);
+  }
+  .field-input {
+    padding: 12px 16px;
+    border-radius: 12px;
+    border: 2px solid var(--border);
+    background: var(--card-face);
+    font-family: 'Instrument Sans', sans-serif;
+    font-size: 15px; font-weight: 500;
+    color: var(--text);
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  .field-input:focus { border-color: var(--accent); }
+  .field-input::placeholder { color: var(--text-muted); }
+
+  .field-select-wrap {
+    position: relative;
+  }
+  .field-select {
+    width: 100%;
+    padding: 12px 16px;
+    border-radius: 12px;
+    border: 2px solid var(--border);
+    background: var(--card-face);
+    font-family: 'Instrument Sans', sans-serif;
+    font-size: 15px; font-weight: 500;
+    color: var(--text);
+    outline: none;
+    appearance: none;
+    cursor: pointer;
+    transition: border-color 0.15s;
+  }
+  .field-select:focus { border-color: var(--accent); }
+  .field-select-arrow {
+    position: absolute; right: 16px; top: 50%;
+    transform: translateY(-50%);
+    pointer-events: none;
+    color: var(--text-muted);
+    font-size: 12px;
+  }
+
+  /* Voting system preview chips */
+  .system-preview {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    margin-top: 4px;
+  }
+  .system-chip {
+    padding: 4px 10px;
+    border-radius: 8px;
+    background: var(--accent-soft);
+    font-family: 'Recursive', sans-serif;
+    font-size: 13px; font-weight: 600;
+    color: var(--accent);
+    font-variation-settings: 'CASL' 0.3;
+  }
+
+  .lobby-btn {
+    width: 100%;
+    padding: 14px;
+    border-radius: 14px;
+    border: none;
+    background: var(--accent);
+    color: #fff;
+    font-family: 'Karla', sans-serif;
+    font-size: 16px; font-weight: 800;
+    cursor: pointer;
+    transition: all 0.2s;
+    box-shadow: 0 4px 16px var(--accent-glow);
+    position: relative;
+    overflow: hidden;
+  }
+  .lobby-btn::before {
+    content: '';
+    position: absolute; inset: 0;
+    background: linear-gradient(135deg, rgba(255,255,255,0.15), transparent);
+    pointer-events: none;
+  }
+  .lobby-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 24px rgba(212,133,106,0.35);
+  }
+
+  .lobby-close {
+    position: absolute; top: 16px; right: 16px;
+    width: 32px; height: 32px; border-radius: 8px;
+    border: none; background: rgba(255,255,255,0.1);
+    color: #8a7a6e; font-size: 18px;
+    cursor: pointer; transition: all 0.15s;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .lobby-close:hover { background: rgba(255,255,255,0.2); color: #fff; }
+
+  /* ═══════════════════════════════════════
+     GAME PAGE HEADER
+     ═══════════════════════════════════════ */
+  .header {
+    background: var(--header-bg);
+    padding: 0 24px; height: 52px;
+    display: flex; align-items: center; justify-content: space-between;
+    flex-shrink: 0;
+  }
+  .header-left { display: flex; align-items: center; gap: 16px; }
+  .logo {
+    font-family: 'Karla', sans-serif;
+    font-size: 17px; font-weight: 800;
+    color: var(--header-text);
+    letter-spacing: -0.02em;
+    display: flex; align-items: center; gap: 8px;
+    cursor: pointer;
+  }
+  .logo-dot { width: 8px; height: 8px; background: var(--accent); border-radius: 50%; }
+  .room-name {
+    font-size: 13px; color: #8a7a6e;
+    padding-left: 16px; border-left: 1px solid #4a3e36;
+  }
+  .header-right { display: flex; align-items: center; gap: 10px; }
+  .btn-invite {
+    padding: 6px 14px; border-radius: 7px;
+    border: 1px solid #5a4a3e; background: transparent;
+    color: #c0aa98; font-family: 'Instrument Sans', sans-serif;
+    font-size: 12px; font-weight: 600;
+    cursor: pointer; transition: all 0.15s;
+  }
+  .btn-invite:hover { border-color: var(--accent); color: var(--accent); }
+  .user-pill {
+    display: flex; align-items: center; gap: 8px;
+    color: #a0907e; font-size: 13px; font-weight: 500;
+  }
+  .user-av {
+    width: 28px; height: 28px; border-radius: 8px;
+    color: #fff; display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 700;
+  }
+
+  /* ═══════════════════════════════════════
+     GAME LAYOUT
+     ═══════════════════════════════════════ */
+  .game-main {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    grid-template-rows: 1fr auto;
+    min-height: 0;
+  }
+
+  /* ─── Sidebar ─── */
+  .sidebar {
+    grid-row: 1 / 3;
+    padding: 24px 20px;
+    border-right: 1px solid var(--border);
+    background: #fff;
+    display: flex; flex-direction: column; gap: 4px;
+    overflow-y: auto;
+  }
+  .sidebar-label {
+    font-size: 10px; font-weight: 700;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 10px;
+  }
+
+  .player-row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 12px; border-radius: 12px;
+    transition: background 0.15s; position: relative;
+  }
+  .player-row:hover { background: #faf5f0; }
+  .player-row.is-you { background: var(--accent-soft); }
+
+  .player-avatar {
+    width: 38px; height: 38px; border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Karla', sans-serif;
+    font-size: 15px; font-weight: 700; color: #fff;
+    flex-shrink: 0; position: relative;
+  }
+  /* Color picker dot */
+  .player-avatar .color-edit {
+    position: absolute; bottom: -2px; right: -2px;
+    width: 14px; height: 14px; border-radius: 50%;
+    background: var(--surface); border: 2px solid var(--border);
+    display: none; align-items: center; justify-content: center;
+    cursor: pointer; font-size: 8px; color: var(--text-muted);
+  }
+  .player-row.is-you .color-edit { display: flex; }
+
+  .player-info { flex: 1; min-width: 0; }
+  .player-name-text {
+    font-size: 14px; font-weight: 600; color: var(--text);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .player-role { font-size: 11px; color: var(--text-muted); margin-top: 1px; }
+
+  .player-vote-indicator {
+    width: 28px; height: 38px; border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; transition: all 0.3s;
+  }
+  .player-vote-indicator.voted { box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+  .player-vote-indicator.voted .vi-check { color: #fff; font-size: 14px; font-weight: 700; }
+  .player-vote-indicator.waiting {
+    background: #f0e8e0; border: 1.5px dashed #d4c8ba;
+  }
+  .player-vote-indicator.revealed-vote {
+    background: var(--card-face); border: 2px solid var(--border);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+  }
+  .player-vote-indicator.revealed-vote .vi-val {
+    font-family: 'Recursive', sans-serif;
+    font-weight: 700; font-size: 15px; color: var(--text);
+    font-variation-settings: 'CASL' 0.3;
+  }
+
+  .players-divider { height: 1px; background: var(--border); margin: 10px 0; }
+
+  /* ─── Consensus Tracker ─── */
+  .consensus-tracker {
+    margin-top: auto;
+    padding: 18px;
+    background: #faf5f0;
+    border-radius: 16px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .consensus-ring {
+    width: 56px; height: 56px;
+    position: relative;
+    flex-shrink: 0;
+  }
+  .consensus-ring svg {
+    width: 56px; height: 56px;
+    transform: rotate(-90deg);
+  }
+  .consensus-ring .ring-bg {
+    fill: none;
+    stroke: #e8ddd4;
+    stroke-width: 5;
+  }
+  .consensus-ring .ring-fill {
+    fill: none;
+    stroke: var(--accent);
+    stroke-width: 5;
+    stroke-linecap: round;
+    transition: stroke-dashoffset 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .consensus-ring .ring-label {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+  }
+  .consensus-ring .ring-num {
+    font-family: 'Recursive', sans-serif;
+    font-size: 16px; font-weight: 800;
+    color: var(--accent);
+    font-variation-settings: 'CASL' 0.3;
+    line-height: 1;
+  }
+  .consensus-ring .ring-den {
+    font-size: 9px; font-weight: 600;
+    color: var(--text-muted);
+    letter-spacing: 0.02em;
+  }
+  .consensus-info {
+    flex: 1;
+  }
+  .consensus-title {
+    font-size: 13px; font-weight: 700; color: var(--text);
+    margin-bottom: 2px;
+  }
+  .consensus-desc {
+    font-size: 11px; color: var(--text-muted); line-height: 1.4;
+  }
+
+  /* ─── Stage ─── */
+  .stage {
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    padding: 48px 32px; position: relative; overflow: hidden;
+  }
+  .stage::before {
+    content: ''; position: absolute; inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg width='40' height='40' viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23d4c8ba' fill-opacity='0.07'%3E%3Ccircle cx='20' cy='20' r='1'/%3E%3C/g%3E%3C/svg%3E");
+    pointer-events: none;
+  }
+
+  .stage-status {
+    font-family: 'Karla', sans-serif;
+    font-size: 13px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.12em;
+    color: var(--text-muted);
+    margin-bottom: 32px; position: relative; z-index: 1;
+  }
+  .stage-status .count { color: var(--accent); }
+
+  .stage-cards {
+    display: flex; gap: 16px;
+    align-items: flex-end; justify-content: center;
+    min-height: 200px; position: relative; z-index: 1;
+  }
+  .stage-card {
+    width: 80px; height: 112px;
+    perspective: 800px; position: relative;
+    opacity: 0; animation: cardIn 0.4s ease-out forwards;
+  }
+  .stage-card:nth-child(1) { animation-delay: 0s; }
+  .stage-card:nth-child(2) { animation-delay: 0.06s; }
+  .stage-card:nth-child(3) { animation-delay: 0.12s; }
+  .stage-card:nth-child(4) { animation-delay: 0.18s; }
+  .stage-card:nth-child(5) { animation-delay: 0.24s; }
+  @keyframes cardIn {
+    from { opacity: 0; transform: translateY(20px) scale(0.95); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+
+  .stage-card-inner {
+    width: 100%; height: 100%; border-radius: 14px;
+    transition: transform 0.7s cubic-bezier(0.34, 1.56, 0.64, 1);
+    transform-style: preserve-3d; position: relative;
+  }
+  .stage-card-inner.flip { transform: rotateY(180deg); }
+  .stage-card-front, .stage-card-back {
+    position: absolute; width: 100%; height: 100%; border-radius: 14px;
+    -webkit-backface-visibility: hidden;
+    backface-visibility: hidden;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+  }
+  .stage-card-front {
+    box-shadow: 0 4px 20px rgba(0,0,0,0.1), 0 1px 3px rgba(0,0,0,0.06);
+    overflow: hidden;
+    z-index: 2;
+  }
+  .stage-card-front::after {
+    content: ''; position: absolute; inset: 6px;
+    border: 1.5px solid rgba(255,255,255,0.2);
+    border-radius: 10px;
+  }
+  .stage-card-front .sc-init {
+    font-family: 'Karla', sans-serif;
+    font-size: 22px; font-weight: 800;
+    color: rgba(255,255,255,0.9);
+    position: relative; z-index: 1;
+  }
+  .stage-card-front.sc-waiting {
+    background: var(--waiting) !important;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  }
+  .stage-card-front.sc-waiting::after { border-color: rgba(255,255,255,0.15); }
+  .stage-card-front.sc-waiting .sc-init {
+    color: rgba(255,255,255,0.5); font-size: 24px;
+  }
+  .stage-card-back {
+    background: var(--card-face);
+    border: 2px solid var(--border);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+    transform: rotateY(180deg); gap: 4px;
+  }
+  .stage-card-back .sc-value {
+    font-family: 'Recursive', sans-serif;
+    font-size: 32px; font-weight: 800;
+    color: var(--text);
+    font-variation-settings: 'CASL' 0.4;
+    line-height: 1;
+  }
+  .stage-card-back .sc-name {
+    font-size: 10px; font-weight: 600;
+    color: var(--text-muted); letter-spacing: 0.04em;
+  }
+  /* Color bar at top of revealed card */
+  .stage-card-back .sc-color-bar {
+    position: absolute; top: 0; left: 0; right: 0;
+    height: 4px; border-radius: 14px 14px 0 0;
+  }
+
+  .stage-action {
+    margin-top: 36px; position: relative; z-index: 1;
+  }
+  .btn-reveal {
+    padding: 14px 44px; border-radius: 14px; border: none;
+    background: var(--accent); color: #fff;
+    font-family: 'Karla', sans-serif;
+    font-size: 15px; font-weight: 800;
+    cursor: pointer; transition: all 0.2s;
+    box-shadow: 0 4px 20px var(--accent-glow);
+    position: relative; overflow: hidden;
+  }
+  .btn-reveal::before {
+    content: ''; position: absolute; inset: 0;
+    background: linear-gradient(135deg, rgba(255,255,255,0.15), transparent);
+    pointer-events: none;
+  }
+  .btn-reveal:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 28px rgba(212,133,106,0.35);
+  }
+  .btn-reveal.all-in { animation: revealPulse 2s ease-in-out infinite; }
+  @keyframes revealPulse {
+    0%, 100% { box-shadow: 0 4px 20px var(--accent-glow); }
+    50% { box-shadow: 0 4px 36px rgba(212,133,106,0.45); }
+  }
+  .btn-new-round {
+    padding: 14px 44px; border-radius: 14px;
+    border: 2px solid var(--border); background: var(--surface);
+    color: var(--text); font-family: 'Karla', sans-serif;
+    font-size: 15px; font-weight: 700;
+    cursor: pointer; transition: all 0.15s;
+  }
+  .btn-new-round:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* ─── Results: big average ─── */
+  .big-average {
+    text-align: center; margin-top: 16px;
+    position: relative; z-index: 1;
+    opacity: 0; transition: opacity 0.4s;
+  }
+  .big-average.show { opacity: 1; }
+  .big-average-label {
+    font-size: 11px; font-weight: 700;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--text-muted); margin-bottom: 2px;
+  }
+  .big-average-value {
+    font-family: 'Recursive', sans-serif;
+    font-size: 52px; font-weight: 800;
+    color: var(--accent);
+    font-variation-settings: 'CASL' 0.5;
+    line-height: 1; letter-spacing: -0.03em;
+  }
+
+  /* ─── Hand ─── */
+  .hand {
+    grid-column: 2;
+    padding: 20px 32px 24px;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+    position: relative;
+  }
+  .hand-label {
+    position: absolute; left: 24px; top: 50%;
+    font-size: 10px; font-weight: 700;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--text-muted);
+    writing-mode: vertical-rl;
+    transform: translateY(-50%) rotate(180deg);
+  }
+  .hand-cards {
+    display: flex; justify-content: center;
+    padding: 0 40px; position: relative;
+  }
+  .hand-card {
+    width: 62px; height: 86px; border-radius: 12px;
+    border: 2px solid var(--border);
+    background: var(--card-face);
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Recursive', sans-serif;
+    font-size: 20px; font-weight: 700;
+    font-variation-settings: 'CASL' 0.4;
+    color: var(--text-secondary);
+    cursor: pointer; transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+    user-select: none; position: relative; margin: 0 -3px;
+    transform-origin: bottom center;
+  }
+  .hand-card:nth-child(1) { transform: rotate(-10deg); z-index: 1; }
+  .hand-card:nth-child(2) { transform: rotate(-6deg); z-index: 2; }
+  .hand-card:nth-child(3) { transform: rotate(-2deg); z-index: 3; }
+  .hand-card:nth-child(4) { transform: rotate(2deg); z-index: 4; }
+  .hand-card:nth-child(5) { transform: rotate(6deg); z-index: 5; }
+  .hand-card:nth-child(6) { transform: rotate(10deg); z-index: 6; }
+  .hand-card:nth-child(7) { transform: rotate(14deg); z-index: 7; }
+  .hand-card:nth-child(8) { transform: rotate(18deg); z-index: 8; }
+  .hand-card:nth-child(9) { transform: rotate(22deg); z-index: 9; }
+
+  .hand-card:hover {
+    border-color: var(--accent); color: var(--accent);
+    z-index: 20 !important;
+    transform: rotate(0deg) translateY(-18px) scale(1.08) !important;
+    box-shadow: 0 8px 24px var(--accent-glow);
+  }
+  .hand-card.picked {
+    border-color: var(--accent);
+    background: var(--accent); color: #fff;
+    z-index: 20 !important;
+    transform: rotate(0deg) translateY(-22px) scale(1.1) !important;
+    box-shadow: 0 10px 32px rgba(212,133,106,0.35);
+  }
+
+  /* ─── Color picker popover ─── */
+  .color-picker-popover {
+    display: none;
+    position: absolute; z-index: 30;
+    left: 50px; top: 0;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 12px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.12);
+    gap: 6px;
+    flex-wrap: wrap;
+    width: 156px;
+  }
+  .color-picker-popover.show { display: flex; }
+  .color-swatch {
+    width: 28px; height: 28px; border-radius: 8px;
+    cursor: pointer; transition: all 0.12s;
+    border: 2px solid transparent;
+  }
+  .color-swatch:hover { transform: scale(1.15); }
+  .color-swatch.active { border-color: var(--text); }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════
+     LOBBY MODAL
+     ═══════════════════════════════════════ -->
+<div class="lobby-overlay" id="lobby-overlay">
+  <div class="lobby-card">
+    <div class="lobby-header" style="position:relative;">
+      <button class="lobby-close" onclick="closeLobby()">&times;</button>
+      <div class="lobby-logo">Pointer<span class="logo-dot"></span></div>
+      <div class="lobby-subtitle">Free, fast scrum poker for your team</div>
+    </div>
+    <div class="lobby-body">
+      <div class="field">
+        <label class="field-label">Game name</label>
+        <input class="field-input" type="text" placeholder="e.g. Sprint 42 Planning" value="Sprint 42 Planning">
+      </div>
+
+      <div class="field">
+        <label class="field-label">Your name</label>
+        <input class="field-input" type="text" placeholder="e.g. Jaedy" value="Jaedy">
+      </div>
+
+      <div class="field">
+        <label class="field-label">Voting system</label>
+        <div class="field-select-wrap">
+          <select class="field-select" onchange="updatePreview(this)">
+            <option value="tshirt">T-Shirt Sizes</option>
+            <option value="fib">Fibonacci</option>
+            <option value="powers">Powers of 2</option>
+            <option value="simple">Simple (1–5)</option>
+          </select>
+          <span class="field-select-arrow">▾</span>
+        </div>
+        <div class="system-preview" id="system-preview">
+          <span class="system-chip">XS</span>
+          <span class="system-chip">S</span>
+          <span class="system-chip">M</span>
+          <span class="system-chip">L</span>
+          <span class="system-chip">XL</span>
+          <span class="system-chip">?</span>
+        </div>
+      </div>
+
+      <button class="lobby-btn" onclick="closeLobby()">Create Game</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════
+     GAME PAGE (always visible)
+     ═══════════════════════════════════════ -->
+<div style="display:flex; flex-direction:column; min-height:100vh;">
+  <div class="header">
+    <div class="header-left">
+      <div class="logo" onclick="goToLobby()">Pointer<span class="logo-dot"></span></div>
+      <span class="room-name">Sprint 42 Planning</span>
+    </div>
+    <div class="header-right">
+      <button class="btn-invite">Copy invite link</button>
+      <div class="user-pill">
+        <div class="user-av" style="background: var(--pc-0);">J</div>
+        Jaedy
+      </div>
+    </div>
+  </div>
+
+  <div class="game-main">
+    <div class="sidebar">
+      <div class="sidebar-label">Players · 5</div>
+
+      <div class="player-row is-you" style="position:relative;">
+        <div class="player-avatar" style="background: var(--pc-0);">
+          J
+          <div class="color-edit" onclick="toggleColorPicker(event, this)">✎</div>
+        </div>
+        <div class="player-info">
+          <div class="player-name-text">Jaedy</div>
+          <div class="player-role">Host · You</div>
+        </div>
+        <div class="player-vote-indicator voted" style="background: var(--pc-0);">
+          <span class="vi-check">✓</span>
+        </div>
+        <div class="color-picker-popover" id="color-picker"></div>
+      </div>
+
+      <div class="player-row">
+        <div class="player-avatar" style="background: var(--pc-1);">A</div>
+        <div class="player-info">
+          <div class="player-name-text">Alice</div>
+        </div>
+        <div class="player-vote-indicator voted" style="background: var(--pc-1);">
+          <span class="vi-check">✓</span>
+        </div>
+      </div>
+
+      <div class="player-row">
+        <div class="player-avatar" style="background: var(--pc-2);">B</div>
+        <div class="player-info">
+          <div class="player-name-text">Bob</div>
+        </div>
+        <div class="player-vote-indicator voted" style="background: var(--pc-2);">
+          <span class="vi-check">✓</span>
+        </div>
+      </div>
+
+      <div class="player-row">
+        <div class="player-avatar" style="background: var(--pc-3);">C</div>
+        <div class="player-info">
+          <div class="player-name-text">Charlie</div>
+        </div>
+        <div class="player-vote-indicator waiting"></div>
+      </div>
+
+      <div class="player-row">
+        <div class="player-avatar" style="background: var(--pc-4);">D</div>
+        <div class="player-info">
+          <div class="player-name-text">Diana</div>
+        </div>
+        <div class="player-vote-indicator voted" style="background: var(--pc-4);">
+          <span class="vi-check">✓</span>
+        </div>
+      </div>
+
+      <div class="players-divider"></div>
+
+      <!-- Consensus Tracker -->
+      <div class="consensus-tracker">
+        <div class="consensus-ring">
+          <svg viewBox="0 0 56 56">
+            <circle class="ring-bg" cx="28" cy="28" r="22"/>
+            <!-- circumference = 2π×22 ≈ 138.23 -->
+            <!-- 5/7 = 71.4% → dashoffset = 138.23 × (1 - 0.714) = 39.5 -->
+            <circle class="ring-fill" cx="28" cy="28" r="22"
+              stroke-dasharray="138.23"
+              stroke-dashoffset="39.5"/>
+          </svg>
+          <div class="ring-label">
+            <span class="ring-num">5</span>
+            <span class="ring-den">of 7</span>
+          </div>
+        </div>
+        <div class="consensus-info">
+          <div class="consensus-title">Consensus rounds</div>
+          <div class="consensus-desc">5 of 7 rounds reached agreement on first vote</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stage">
+      <div class="stage-status" id="stage-status">
+        <span class="count">4</span> of 5 voted
+      </div>
+
+      <div class="stage-cards" id="stage-cards">
+        <div class="stage-card">
+          <div class="stage-card-inner" data-vote="M">
+            <div class="stage-card-front" style="background: var(--pc-0);">
+              <span class="sc-init">J</span>
+            </div>
+            <div class="stage-card-back">
+              <div class="sc-color-bar" style="background: var(--pc-0);"></div>
+              <span class="sc-value">M</span>
+              <span class="sc-name">Jaedy</span>
+            </div>
+          </div>
+        </div>
+        <div class="stage-card">
+          <div class="stage-card-inner" data-vote="M">
+            <div class="stage-card-front" style="background: var(--pc-1);">
+              <span class="sc-init">A</span>
+            </div>
+            <div class="stage-card-back">
+              <div class="sc-color-bar" style="background: var(--pc-1);"></div>
+              <span class="sc-value">M</span>
+              <span class="sc-name">Alice</span>
+            </div>
+          </div>
+        </div>
+        <div class="stage-card">
+          <div class="stage-card-inner" data-vote="L">
+            <div class="stage-card-front" style="background: var(--pc-2);">
+              <span class="sc-init">B</span>
+            </div>
+            <div class="stage-card-back">
+              <div class="sc-color-bar" style="background: var(--pc-2);"></div>
+              <span class="sc-value">L</span>
+              <span class="sc-name">Bob</span>
+            </div>
+          </div>
+        </div>
+        <div class="stage-card">
+          <div class="stage-card-inner" data-vote="?">
+            <div class="stage-card-front sc-waiting" style="">
+              <span class="sc-init">?</span>
+            </div>
+            <div class="stage-card-back">
+              <div class="sc-color-bar" style="background: var(--pc-3);"></div>
+              <span class="sc-value">—</span>
+              <span class="sc-name">Charlie</span>
+            </div>
+          </div>
+        </div>
+        <div class="stage-card">
+          <div class="stage-card-inner" data-vote="M">
+            <div class="stage-card-front" style="background: var(--pc-4);">
+              <span class="sc-init">D</span>
+            </div>
+            <div class="stage-card-back">
+              <div class="sc-color-bar" style="background: var(--pc-4);"></div>
+              <span class="sc-value">M</span>
+              <span class="sc-name">Diana</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="big-average" id="big-average">
+        <div class="big-average-label">Consensus</div>
+        <div class="big-average-value">M</div>
+      </div>
+
+      <div class="stage-action" id="stage-action">
+        <button class="btn-reveal all-in" onclick="doReveal()">Reveal Cards</button>
+      </div>
+    </div>
+
+    <div class="hand">
+      <span class="hand-label">Your hand</span>
+      <div class="hand-cards">
+        <div class="hand-card" onclick="pickCard(this)">XS</div>
+        <div class="hand-card" onclick="pickCard(this)">S</div>
+        <div class="hand-card picked" onclick="pickCard(this)">M</div>
+        <div class="hand-card" onclick="pickCard(this)">L</div>
+        <div class="hand-card" onclick="pickCard(this)">XL</div>
+        <div class="hand-card" onclick="pickCard(this)">?</div>
+      </div>
+    </div>
+  </div>
+</div><!-- close always-visible game wrapper -->
+
+<!-- Toggle for mockup -->
+<div class="page-toggle" style="position:fixed;bottom:20px;right:20px;z-index:70;display:flex;gap:4px;padding:4px;background:var(--header-bg);border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,0.15);">
+  <button class="pt-btn active" onclick="openLobby(this)" id="btn-lobby" style="padding:8px 14px;border:none;border-radius:8px;background:var(--accent);color:#fff;font-family:'Instrument Sans',sans-serif;font-size:11px;font-weight:600;cursor:pointer;">Lobby</button>
+  <button class="pt-btn" onclick="closeLobby(this)" id="btn-game" style="padding:8px 14px;border:none;border-radius:8px;background:transparent;color:#8a7a6e;font-family:'Instrument Sans',sans-serif;font-size:11px;font-weight:600;cursor:pointer;">Game</button>
+</div>
+
+<script>
+  const SYSTEMS = {
+    fib: ['0','1','2','3','5','8','13','21','?'],
+    tshirt: ['XS','S','M','L','XL','?'],
+    powers: ['1','2','4','8','16','32','?'],
+    simple: ['1','2','3','4','5','?'],
+  };
+  const COLOR_HEX = [
+    '#d4856a','#6aad8c','#7b8fc7','#c9a84c',
+    '#b07cc7','#c76a6a','#6ab5c7','#8aad5c',
+    '#c78a5c','#6a7ec7','#c76a9a','#5cad9a',
+  ];
+
+  // Build color picker
+  const picker = document.getElementById('color-picker');
+  COLOR_HEX.forEach((hex, i) => {
+    const sw = document.createElement('div');
+    sw.className = 'color-swatch' + (i === 0 ? ' active' : '');
+    sw.style.background = hex;
+    sw.onclick = (e) => {
+      e.stopPropagation();
+      picker.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('active'));
+      sw.classList.add('active');
+      const row = picker.closest('.player-row');
+      row.querySelector('.player-avatar').style.background = hex;
+      row.querySelector('.player-vote-indicator').style.background = hex;
+      document.querySelector('.user-av').style.background = hex;
+      const stageCards = document.querySelectorAll('.stage-card-front');
+      stageCards[0].style.background = hex;
+      document.querySelectorAll('.sc-color-bar')[0].style.background = hex;
+    };
+    picker.appendChild(sw);
+  });
+
+  function toggleColorPicker(e) {
+    e.stopPropagation();
+    picker.classList.toggle('show');
+  }
+  document.addEventListener('click', () => picker.classList.remove('show'));
+
+  // Lobby modal
+  function openLobby() {
+    document.getElementById('lobby-overlay').classList.remove('hidden');
+    document.getElementById('btn-lobby').style.background = 'var(--accent)';
+    document.getElementById('btn-lobby').style.color = '#fff';
+    document.getElementById('btn-game').style.background = 'transparent';
+    document.getElementById('btn-game').style.color = '#8a7a6e';
+  }
+  function closeLobby() {
+    document.getElementById('lobby-overlay').classList.add('hidden');
+    document.getElementById('btn-game').style.background = 'var(--accent)';
+    document.getElementById('btn-game').style.color = '#fff';
+    document.getElementById('btn-lobby').style.background = 'transparent';
+    document.getElementById('btn-lobby').style.color = '#8a7a6e';
+  }
+
+  function updatePreview(sel) {
+    const preview = document.getElementById('system-preview');
+    const values = SYSTEMS[sel.value];
+    preview.innerHTML = values.map(v => `<span class="system-chip">${v}</span>`).join('');
+  }
+
+  // Card pick — toggle on re-click
+  function pickCard(el) {
+    if (el.classList.contains('picked')) {
+      el.classList.remove('picked');
+      return;
+    }
+    document.querySelectorAll('.hand-card').forEach(c => c.classList.remove('picked'));
+    el.classList.add('picked');
+  }
+
+  let isRevealed = false;
+  function doReveal() {
+    if (isRevealed) return;
+    isRevealed = true;
+    const cards = document.querySelectorAll('.stage-card-inner');
+    cards.forEach((c, i) => {
+      setTimeout(() => c.classList.add('flip'), i * 100);
+    });
+
+    setTimeout(() => {
+      document.getElementById('big-average').classList.add('show');
+      document.getElementById('stage-status').innerHTML = 'Results';
+      document.getElementById('stage-action').innerHTML =
+        '<button class="btn-new-round" onclick="resetRound()">Start New Round</button>';
+    }, cards.length * 100 + 300);
+  }
+
+  function resetRound() {
+    isRevealed = false;
+    document.querySelectorAll('.stage-card-inner').forEach(c => c.classList.remove('flip'));
+    document.getElementById('big-average').classList.remove('show');
+    document.getElementById('stage-status').innerHTML = '<span class="count">4</span> of 5 voted';
+    document.getElementById('stage-action').innerHTML =
+      '<button class="btn-reveal all-in" onclick="doReveal()">Reveal Cards</button>';
+  }
+</script>
+</body>
+</html>
