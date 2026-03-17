@@ -243,6 +243,30 @@
     cursor: pointer; transition: all 0.15s;
   }
   .btn-invite:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-leave {
+    padding: 6px 14px; border-radius: 7px;
+    border: 1px solid #5a4a3e; background: transparent;
+    color: #8a7a6e; font-family: 'Instrument Sans', sans-serif;
+    font-size: 12px; font-weight: 600;
+    cursor: pointer; transition: all 0.15s;
+  }
+  .btn-leave:hover { border-color: #c76a6a; color: #c76a6a; }
+
+  /* Countdown overlay */
+  .countdown-number {
+    font-family: 'Recursive', sans-serif;
+    font-size: 72px; font-weight: 800;
+    color: var(--accent);
+    font-variation-settings: 'CASL' 0.5;
+    line-height: 1;
+    animation: countdownPop 1s ease-out;
+  }
+  @keyframes countdownPop {
+    0% { transform: scale(1.5); opacity: 0; }
+    30% { transform: scale(1); opacity: 1; }
+    100% { transform: scale(1); opacity: 1; }
+  }
+
   .user-pill {
     display: flex; align-items: center; gap: 8px;
     color: #a0907e; font-size: 13px; font-weight: 500;
@@ -755,6 +779,7 @@
     </div>
     <div class="header-right">
       <button class="btn-invite" id="btn-invite" onclick="copyInviteLink()">Copy invite link</button>
+      <button class="btn-leave" onclick="leaveRoom()">Leave</button>
       <div class="user-pill">
         <div class="user-av" id="user-av">?</div>
         <span id="user-name-display"></span>
@@ -879,6 +904,24 @@
         state.room = msg.room;
         if (wasRevealed && !msg.room.revealed) state.myVote = null;
         render();
+        break;
+      }
+      case 'countdown': {
+        state.countdown = msg.seconds;
+        state.countdownBy = msg.initiatedBy;
+        renderCountdown();
+        let t = msg.seconds - 1;
+        const interval = setInterval(() => {
+          if (t <= 0) {
+            clearInterval(interval);
+            state.countdown = null;
+            state.countdownBy = null;
+            return;
+          }
+          state.countdown = t;
+          renderCountdown();
+          t--;
+        }, 1000);
         break;
       }
       case 'error': {
@@ -1036,11 +1079,7 @@
     }).join('');
 
     if (state.room.revealed) {
-      if (isHost) {
-        action.innerHTML = '<button class="btn-new-round" onclick="newRound()">Start New Round</button>';
-      } else {
-        action.innerHTML = '<span style="color:var(--text-muted);font-size:13px;">Waiting for host to start new round...</span>';
-      }
+      action.innerHTML = '<button class="btn-new-round" onclick="newRound()">Start New Round</button>';
       const numericVotes = state.room.players.map(p => p.vote).filter(v => v && v !== '?' && v !== '—');
       avg.classList.add('show');
       if (numericVotes.length > 0 && !isNaN(Number(numericVotes[0]))) {
@@ -1056,12 +1095,8 @@
       }
     } else {
       avg.classList.remove('show');
-      if (isHost) {
-        const allVoted = votedCount === totalCount && totalCount > 0;
-        action.innerHTML = `<button class="btn-reveal ${allVoted ? 'all-in' : ''}" onclick="reveal()" ${votedCount === 0 ? 'disabled style="opacity:0.5;cursor:default;"' : ''}>Reveal Cards</button>`;
-      } else {
-        action.innerHTML = '<span style="color:var(--text-muted);font-size:13px;">Waiting for host to reveal...</span>';
-      }
+      const allVoted = votedCount === totalCount && totalCount > 0;
+      action.innerHTML = `<button class="btn-reveal ${allVoted ? 'all-in' : ''}" onclick="reveal()" ${votedCount === 0 ? 'disabled style="opacity:0.5;cursor:default;"' : ''}>Reveal Cards</button>`;
     }
   }
 
@@ -1089,6 +1124,13 @@
 
   function reveal() { send({ type: 'reveal' }); }
   function newRound() { send({ type: 'new-round' }); }
+  function leaveRoom() {
+    send({ type: 'leave-room' });
+    state.room = null;
+    state.playerId = null;
+    state.myVote = null;
+    location.hash = '#/';
+  }
 
   function copyInviteLink() {
     const url = `${location.origin}${location.pathname}#/join/${state.room.id}`;
@@ -1102,6 +1144,15 @@
 
   function changeColor(colorIndex) {
     send({ type: 'change-color', colorIndex });
+  }
+
+  function renderCountdown() {
+    const action = document.getElementById('stage-action');
+    const status = document.getElementById('stage-status');
+    if (state.countdown) {
+      status.innerHTML = `<span class="count">${escapeHtml(state.countdownBy)}</span> is revealing...`;
+      action.innerHTML = `<div class="countdown-number">${state.countdown}</div>`;
+    }
   }
 
   function toggleColorPicker(event) {

@@ -191,32 +191,60 @@ wss.on('connection', (ws) => {
       case 'reveal': {
         if (!currentRoom || !currentPlayerId) return;
         const player = currentRoom.players.get(currentPlayerId);
-        if (!player || !player.isHost) return;
+        if (!player) return;
+        if (currentRoom.revealed || currentRoom._countdownTimer) return;
         currentRoom.lastActivity = Date.now();
-        currentRoom.revealed = true;
 
-        const votes = [...currentRoom.players.values()]
-          .map(p => p.vote)
-          .filter(v => v && v !== '?');
-        if (votes.length > 1 && votes.every(v => v === votes[0])) {
-          currentRoom.consensusCount++;
+        // Broadcast countdown start to all players
+        const countdownMsg = JSON.stringify({
+          type: 'countdown',
+          initiatedBy: player.name,
+          seconds: 3,
+        });
+        for (const [, p] of currentRoom.players) {
+          if (p.ws && p.ws.readyState === 1) p.ws.send(countdownMsg);
         }
-        currentRoom.roundNumber++;
 
-        broadcastRoom(currentRoom);
+        // Reveal after 3 seconds
+        currentRoom._countdownTimer = setTimeout(() => {
+          currentRoom._countdownTimer = null;
+          currentRoom.revealed = true;
+
+          const votes = [...currentRoom.players.values()]
+            .map(p => p.vote)
+            .filter(v => v && v !== '?');
+          if (votes.length > 1 && votes.every(v => v === votes[0])) {
+            currentRoom.consensusCount++;
+          }
+          currentRoom.roundNumber++;
+
+          broadcastRoom(currentRoom);
+        }, 3000);
         break;
       }
 
       case 'new-round': {
         if (!currentRoom || !currentPlayerId) return;
         const player = currentRoom.players.get(currentPlayerId);
-        if (!player || !player.isHost) return;
+        if (!player) return;
         currentRoom.lastActivity = Date.now();
         currentRoom.revealed = false;
         for (const p of currentRoom.players.values()) {
           p.vote = null;
         }
         broadcastRoom(currentRoom);
+        break;
+      }
+
+      case 'leave-room': {
+        if (!currentRoom || !currentPlayerId) return;
+        const player = currentRoom.players.get(currentPlayerId);
+        if (!player) return;
+        currentRoom.players.delete(currentPlayerId);
+        promoteHost(currentRoom);
+        broadcastRoom(currentRoom);
+        currentRoom = null;
+        currentPlayerId = null;
         break;
       }
 
