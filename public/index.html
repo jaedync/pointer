@@ -1195,6 +1195,7 @@
             clearInterval(interval);
             state.countdown = null;
             state.countdownBy = null;
+            renderCountdown();
             return;
           }
           state.countdown = t;
@@ -1270,6 +1271,12 @@
   // ─── Render Functions ─────────────────────────────────────────────────────────
   function render() {
     if (!state.room) return;
+    // Clear countdown overlay when reveal arrives
+    if (state.room.revealed) {
+      state.countdown = null;
+      state.countdownBy = null;
+      renderCountdown();
+    }
     renderHeader();
     renderSidebar();
     renderStage();
