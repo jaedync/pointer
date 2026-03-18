@@ -1,9 +1,15 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const { WebSocketServer } = require('ws');
+const room = require('./room');
 
 const PORT = process.env.PORT || 3000;
+const ROOM_TIMEOUT_MS = 30 * 60 * 1000;
+const RECONNECT_WINDOW_MS = 60 * 1000;
+const COUNTDOWN_MS = 3000;
 
+// ─── HTTP ────────────────────────────────────────────────────────────────────
 const server = http.createServer((req, res) => {
   const htmlPath = path.join(__dirname, 'public', 'index.html');
   fs.readFile(htmlPath, (err, data) => {
@@ -17,84 +23,21 @@ const server = http.createServer((req, res) => {
   });
 });
 
-const { WebSocketServer } = require('ws');
-
+// ─── WebSocket ───────────────────────────────────────────────────────────────
 const wss = new WebSocketServer({ server });
-
-// ─── Data ───
 const rooms = new Map();
-const VOTING_SYSTEMS = {
-  tshirt: ['XS', 'S', 'M', 'L', 'XL', '?'],
-  fib: ['0', '1', '2', '3', '5', '8', '13', '21', '?'],
-  powers: ['1', '2', '4', '8', '16', '32', '?'],
-  simple: ['1', '2', '3', '4', '5', '?'],
-};
-const NUM_COLORS = 12;
-const ROOM_TIMEOUT_MS = 30 * 60 * 1000;
-const RECONNECT_WINDOW_MS = 60 * 1000;
 
-function generateId() {
-  return Math.random().toString(36).substring(2, 7);
-}
-
-function createRoom(name, votingSystem) {
-  const id = generateId();
-  const room = {
-    id,
-    name: name || 'Planning Poker',
-    votingSystem: VOTING_SYSTEMS[votingSystem] || VOTING_SYSTEMS.tshirt,
-    votingSystemKey: votingSystem || 'tshirt',
-    players: new Map(),
-    revealed: false,
-    roundNumber: 0,
-    consensusCount: 0,
-    disconnected: new Map(),
-    lastActivity: Date.now(),
-  };
-  rooms.set(id, room);
-  return room;
-}
-
-function getNextColor(room) {
-  const usedColors = new Set([...room.players.values()].map(p => p.color));
-  for (let i = 0; i < NUM_COLORS; i++) {
-    if (!usedColors.has(i)) return i;
-  }
-  return room.players.size % NUM_COLORS;
-}
-
-function broadcastRoom(room) {
-  const state = {
-    type: 'room-state',
-    room: {
-      id: room.id,
-      name: room.name,
-      votingSystem: room.votingSystem,
-      votingSystemKey: room.votingSystemKey,
-      revealed: room.revealed,
-      roundNumber: room.roundNumber,
-      consensusCount: room.consensusCount,
-      players: [...room.players.entries()].map(([sid, p]) => ({
-        id: sid,
-        name: p.name,
-        vote: room.revealed ? p.vote : (p.vote ? 'voted' : null),
-        isHost: p.isHost,
-        color: p.color,
-      })),
-    },
-  };
-  const msg = JSON.stringify(state);
-  for (const [sid, player] of room.players) {
-    if (player.ws && player.ws.readyState === 1) {
-      player.ws.send(msg);
-    }
+function broadcastRoom(r) {
+  const msg = JSON.stringify({ type: 'room-state', room: room.serializeRoom(r) });
+  for (const [, player] of r.players) {
+    if (player.ws && player.ws.readyState === 1) player.ws.send(msg);
   }
 }
 
-function promoteHost(room) {
-  const players = [...room.players.values()];
-  if (players.length > 0 && !players.some(p => p.isHost)) {
-    players[0].isHost = true;
+function broadcastCountdown(r, initiatedBy) {
+  const msg = JSON.stringify({ type: 'countdown', initiatedBy, seconds: 3 });
+  for (const [, p] of r.players) {
+    if (p.ws && p.ws.readyState === 1) p.ws.send(msg);
   }
 }
 
@@ -104,145 +47,96 @@ wss.on('connection', (ws) => {
 
   ws.on('message', (data) => {
     let msg;
-    try {
-      msg = JSON.parse(data);
-    } catch {
-      return;
-    }
+    try { msg = JSON.parse(data); } catch { return; }
 
     switch (msg.type) {
       case 'create-room': {
-        const room = createRoom(msg.name, msg.votingSystem);
-        const playerId = generateId();
-        const player = {
-          name: msg.playerName || 'Player',
-          vote: null,
-          isHost: true,
-          color: 0,
-          ws,
-        };
-        room.players.set(playerId, player);
-        currentRoom = room;
+        const r = room.createRoom(msg.name, msg.votingSystem);
+        rooms.set(r.id, r);
+        const { playerId } = room.addPlayer(r, msg.playerName, ws);
+        currentRoom = r;
         currentPlayerId = playerId;
-        ws.send(JSON.stringify({ type: 'room-created', roomId: room.id, playerId }));
-        broadcastRoom(room);
+        ws.send(JSON.stringify({ type: 'room-created', roomId: r.id, playerId }));
+        broadcastRoom(r);
         break;
       }
 
       case 'join-room': {
-        const room = rooms.get(msg.roomId);
-        if (!room) {
+        const r = rooms.get(msg.roomId);
+        if (!r) {
           ws.send(JSON.stringify({ type: 'error', message: 'Room not found' }));
           return;
         }
-        room.lastActivity = Date.now();
+        r.lastActivity = Date.now();
 
-        const disconnectedEntry = room.disconnected.get(msg.playerName);
+        // Reconnection
+        const disconnectedEntry = r.disconnected.get(msg.playerName);
         if (disconnectedEntry) {
           clearTimeout(disconnectedEntry.timeout);
-          room.disconnected.delete(msg.playerName);
+          r.disconnected.delete(msg.playerName);
           const player = disconnectedEntry.player;
           player.ws = ws;
-          const playerId = generateId();
-          room.players.set(playerId, player);
-          currentRoom = room;
+          const playerId = room.generateId();
+          r.players.set(playerId, player);
+          currentRoom = r;
           currentPlayerId = playerId;
-          ws.send(JSON.stringify({ type: 'joined', roomId: room.id, playerId }));
-          broadcastRoom(room);
+          ws.send(JSON.stringify({ type: 'joined', roomId: r.id, playerId }));
+          broadcastRoom(r);
           return;
         }
 
-        const playerId = generateId();
-        const player = {
-          name: msg.playerName || 'Player',
-          vote: null,
-          isHost: room.players.size === 0,
-          color: getNextColor(room),
-          ws,
-        };
-        room.players.set(playerId, player);
-        currentRoom = room;
+        const { playerId } = room.addPlayer(r, msg.playerName, ws);
+        currentRoom = r;
         currentPlayerId = playerId;
-        ws.send(JSON.stringify({ type: 'joined', roomId: room.id, playerId }));
-        broadcastRoom(room);
+        ws.send(JSON.stringify({ type: 'joined', roomId: r.id, playerId }));
+        broadcastRoom(r);
         break;
       }
 
       case 'vote': {
         if (!currentRoom || !currentPlayerId) return;
-        const player = currentRoom.players.get(currentPlayerId);
-        if (!player || currentRoom.revealed) return;
-        currentRoom.lastActivity = Date.now();
-        player.vote = msg.value;
-        broadcastRoom(currentRoom);
+        if (room.vote(currentRoom, currentPlayerId, msg.value)) {
+          broadcastRoom(currentRoom);
+        }
         break;
       }
 
       case 'clear-vote': {
         if (!currentRoom || !currentPlayerId) return;
-        const player = currentRoom.players.get(currentPlayerId);
-        if (!player || currentRoom.revealed) return;
-        currentRoom.lastActivity = Date.now();
-        player.vote = null;
-        broadcastRoom(currentRoom);
+        if (room.clearVote(currentRoom, currentPlayerId)) {
+          broadcastRoom(currentRoom);
+        }
         break;
       }
 
       case 'reveal': {
         if (!currentRoom || !currentPlayerId) return;
-        const player = currentRoom.players.get(currentPlayerId);
-        if (!player || !player.isHost) return;
-        if (currentRoom.revealed || currentRoom._countdownTimer) return;
-        currentRoom.lastActivity = Date.now();
+        const result = room.reveal(currentRoom, currentPlayerId);
+        if (!result.ok) return;
 
-        // Broadcast countdown start to all players
-        const countdownMsg = JSON.stringify({
-          type: 'countdown',
-          initiatedBy: player.name,
-          seconds: 3,
-        });
-        for (const [, p] of currentRoom.players) {
-          if (p.ws && p.ws.readyState === 1) p.ws.send(countdownMsg);
-        }
-
-        // Reveal after 3 seconds
+        broadcastCountdown(currentRoom, result.initiatedBy);
         currentRoom._countdownTimer = setTimeout(() => {
-          currentRoom._countdownTimer = null;
-          currentRoom.revealed = true;
-
-          const votes = [...currentRoom.players.values()]
-            .map(p => p.vote)
-            .filter(v => v && v !== '?');
-          if (votes.length > 1 && votes.every(v => v === votes[0])) {
-            currentRoom.consensusCount++;
-          }
-          currentRoom.roundNumber++;
-
+          room.applyReveal(currentRoom);
           broadcastRoom(currentRoom);
-        }, 3000);
+        }, COUNTDOWN_MS);
         break;
       }
 
       case 'new-round': {
         if (!currentRoom || !currentPlayerId) return;
-        const player = currentRoom.players.get(currentPlayerId);
-        if (!player || !player.isHost) return;
-        currentRoom.lastActivity = Date.now();
-        currentRoom.revealed = false;
-        for (const p of currentRoom.players.values()) {
-          p.vote = null;
+        if (room.newRound(currentRoom, currentPlayerId)) {
+          broadcastRoom(currentRoom);
         }
-        broadcastRoom(currentRoom);
         break;
       }
 
       case 'leave-room': {
         if (!currentRoom || !currentPlayerId) return;
-        const player = currentRoom.players.get(currentPlayerId);
-        if (!player) return;
-        currentRoom.players.delete(currentPlayerId);
-        promoteHost(currentRoom);
+        room.removePlayer(currentRoom, currentPlayerId);
         broadcastRoom(currentRoom);
+        if (currentRoom.players.size === 0) {
+          rooms.delete(currentRoom.id);
+        }
         currentRoom = null;
         currentPlayerId = null;
         break;
@@ -250,11 +144,9 @@ wss.on('connection', (ws) => {
 
       case 'change-color': {
         if (!currentRoom || !currentPlayerId) return;
-        const player = currentRoom.players.get(currentPlayerId);
-        if (!player) return;
-        if (typeof msg.colorIndex !== 'number' || msg.colorIndex < 0 || msg.colorIndex >= NUM_COLORS) return;
-        player.color = msg.colorIndex;
-        broadcastRoom(currentRoom);
+        if (room.changeColor(currentRoom, currentPlayerId, msg.colorIndex)) {
+          broadcastRoom(currentRoom);
+        }
         break;
       }
     }
@@ -275,15 +167,16 @@ wss.on('connection', (ws) => {
     }, RECONNECT_WINDOW_MS);
     currentRoom.disconnected.set(player.name, { player, timeout });
 
-    promoteHost(currentRoom);
+    room.promoteHost(currentRoom);
     broadcastRoom(currentRoom);
   });
 });
 
+// ─── Room GC ─────────────────────────────────────────────────────────────────
 setInterval(() => {
   const now = Date.now();
-  for (const [id, room] of rooms) {
-    if (now - room.lastActivity > ROOM_TIMEOUT_MS && room.players.size === 0) {
+  for (const [id, r] of rooms) {
+    if (now - r.lastActivity > ROOM_TIMEOUT_MS && r.players.size === 0) {
       rooms.delete(id);
     }
   }
