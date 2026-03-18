@@ -1,2 +1,7 @@
 node_modules/
 .DS_Store
+*.local
+
+# Design scratch files
+*-concepts.html
+card-styles*.html
