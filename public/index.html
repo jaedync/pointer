@@ -85,28 +85,35 @@
   }
 
   .lobby-header {
-    background: var(--header-bg);
-    padding: 28px 32px 24px;
+    background: var(--surface);
+    padding: 28px 32px 20px;
     text-align: center;
     position: relative;
+    border-bottom: 1px solid var(--border);
+  }
+  .lobby-header::before {
+    content: ''; position: absolute;
+    top: 0; left: 0; right: 0; height: 4px;
+    background: var(--accent);
+    border-radius: 24px 24px 0 0;
   }
   .lobby-close {
     position: absolute; top: 16px; right: 16px;
     width: 32px; height: 32px; border-radius: 8px;
-    border: none; background: rgba(255,255,255,0.1);
-    color: #8a7a6e; font-size: 18px;
+    border: none; background: var(--accent-soft);
+    color: var(--text-muted); font-size: 18px;
     cursor: pointer; transition: all 0.15s;
     display: flex; align-items: center; justify-content: center;
   }
-  .lobby-close:hover { background: rgba(255,255,255,0.2); color: #fff; }
+  .lobby-close:hover { background: var(--accent-glow); color: var(--accent); }
 
   .lobby-logo {
     font-family: 'Karla', sans-serif;
     font-size: 26px; font-weight: 800;
-    color: var(--header-text);
+    color: var(--text);
     letter-spacing: -0.02em;
     display: flex; align-items: center; justify-content: center; gap: 8px;
-    margin-bottom: 8px;
+    margin-bottom: 6px;
   }
   .lobby-logo .logo-dot {
     width: 10px; height: 10px;
@@ -114,7 +121,7 @@
     border-radius: 50%;
   }
   .lobby-subtitle {
-    font-size: 14px; color: #8a7a6e;
+    font-size: 14px; color: var(--text-muted);
   }
 
   .lobby-body {
@@ -243,6 +250,21 @@
     cursor: pointer; transition: all 0.15s;
   }
   .btn-invite:hover { border-color: var(--accent); color: var(--accent); }
+  .invite-group {
+    display: flex; align-items: center; gap: 6px;
+    padding: 4px 4px 4px 12px;
+    border-radius: 10px;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.06);
+  }
+  .room-code {
+    font-family: 'Recursive', sans-serif;
+    font-size: 14px; font-weight: 700;
+    font-variation-settings: 'CASL' 0.3;
+    color: var(--accent);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
   .btn-leave {
     padding: 6px 14px; border-radius: 7px;
     border: 1px solid #5a4a3e; background: transparent;
@@ -1016,7 +1038,11 @@
       <span class="room-name" id="room-name-display">Waiting...</span>
     </div>
     <div class="header-right">
-      <button class="btn-invite" id="btn-invite" onclick="copyInviteLink()">Copy invite link</button>
+      <div class="invite-group">
+        <span class="room-code" id="room-code-display" title="Room code">—</span>
+        <button class="btn-invite" id="btn-copy-code" onclick="copyRoomCode()">Copy code</button>
+        <button class="btn-invite" id="btn-copy-link" onclick="copyInviteLink()">Copy link</button>
+      </div>
       <button class="btn-leave" onclick="leaveRoom()">Leave</button>
       <div class="user-pill">
         <div class="user-av" id="user-av">?</div>
@@ -1243,6 +1269,7 @@
 
   function renderHeader() {
     document.getElementById('room-name-display').textContent = state.room.name;
+    document.getElementById('room-code-display').textContent = state.room.id;
     const me = state.room.players.find(p => p.id === state.playerId);
     if (me) {
       document.getElementById('user-av').style.background = COLORS[me.color];
@@ -1399,7 +1426,15 @@
   function copyInviteLink() {
     const url = `${location.origin}${location.pathname}#/join/${state.room.id}`;
     navigator.clipboard.writeText(url).then(() => {
-      const btn = document.getElementById('btn-invite');
+      const btn = document.getElementById('btn-copy-link');
+      const orig = btn.textContent;
+      btn.textContent = 'Copied!';
+      setTimeout(() => { btn.textContent = orig; }, 1500);
+    });
+  }
+  function copyRoomCode() {
+    navigator.clipboard.writeText(state.room.id).then(() => {
+      const btn = document.getElementById('btn-copy-code');
       const orig = btn.textContent;
       btn.textContent = 'Copied!';
       setTimeout(() => { btn.textContent = orig; }, 1500);
