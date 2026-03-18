@@ -15,13 +15,14 @@ const MIME_TYPES = {
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
   '.ico': 'image/x-icon',
+  '.woff2': 'font/woff2',
 };
 
 const server = http.createServer((req, res) => {
   const ext = path.extname(req.url);
   const isStatic = ext && MIME_TYPES[ext];
   const filePath = isStatic
-    ? path.join(__dirname, 'public', path.basename(req.url))
+    ? path.join(__dirname, 'public', req.url.split('?')[0])
     : path.join(__dirname, 'public', 'index.html');
   const contentType = MIME_TYPES[ext] || 'text/html';
 

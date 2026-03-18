@@ -10,37 +10,31 @@
 <link rel="shortcut icon" href="/favicon.ico">
 <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
 <meta name="theme-color" content="#2e2320">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Karla:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&family=Recursive:wght,CASL,MONO@300..800,0..1,0..1&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap">
 <style>
   /* Set background immediately to prevent white flash */
   html { background: #2e2320; }
 
-  /* Metric-matched fallbacks to minimize layout shift during font swap */
+  /* Self-hosted fonts — block rendering until loaded for zero FOUT */
   @font-face {
-    font-family: 'Instrument Sans Fallback';
-    src: local('Arial');
-    size-adjust: 103%;
-    ascent-override: 90%;
-    descent-override: 25%;
-    line-gap-override: 0%;
+    font-family: 'Instrument Sans';
+    src: url('/fonts/instrument-sans-latin.woff2') format('woff2');
+    font-weight: 400 700;
+    font-style: normal;
+    font-display: block;
   }
   @font-face {
-    font-family: 'Karla Fallback';
-    src: local('Arial');
-    size-adjust: 104%;
-    ascent-override: 88%;
-    descent-override: 24%;
-    line-gap-override: 0%;
+    font-family: 'Karla';
+    src: url('/fonts/karla-latin.woff2') format('woff2');
+    font-weight: 400 800;
+    font-style: normal;
+    font-display: block;
   }
   @font-face {
-    font-family: 'Recursive Fallback';
-    src: local('Courier New');
-    size-adjust: 93%;
-    ascent-override: 95%;
-    descent-override: 27%;
-    line-gap-override: 0%;
+    font-family: 'Recursive';
+    src: url('/fonts/recursive-latin.woff2') format('woff2');
+    font-weight: 300 800;
+    font-style: normal;
+    font-display: block;
   }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -79,7 +73,7 @@
   }
 
   body {
-    font-family: 'Instrument Sans', 'Instrument Sans Fallback', sans-serif;
+    font-family: 'Instrument Sans', sans-serif;
     background: var(--bg);
     color: var(--text);
     min-height: 100vh;
@@ -144,7 +138,7 @@
   .lobby-close:hover { background: var(--accent-glow); color: var(--accent); }
 
   .lobby-logo {
-    font-family: 'Karla', 'Karla Fallback', sans-serif;
+    font-family: 'Karla', sans-serif;
     font-size: 26px; font-weight: 800;
     color: var(--text);
     letter-spacing: -0.02em;
@@ -178,7 +172,7 @@
     border-radius: 12px;
     border: 2px solid var(--border);
     background: var(--card-face);
-    font-family: 'Instrument Sans', 'Instrument Sans Fallback', sans-serif;
+    font-family: 'Instrument Sans', sans-serif;
     font-size: 15px; font-weight: 500;
     color: var(--text);
     outline: none;
@@ -196,7 +190,7 @@
     border-radius: 12px;
     border: 2px solid var(--border);
     background: var(--card-face);
-    font-family: 'Instrument Sans', 'Instrument Sans Fallback', sans-serif;
+    font-family: 'Instrument Sans', sans-serif;
     font-size: 15px; font-weight: 500;
     color: var(--text);
     outline: none;
@@ -222,7 +216,7 @@
     padding: 4px 10px;
     border-radius: 8px;
     background: var(--accent-soft);
-    font-family: 'Recursive', 'Recursive Fallback', sans-serif;
+    font-family: 'Recursive', sans-serif;
     font-size: 13px; font-weight: 600;
     color: var(--accent);
     font-variation-settings: 'CASL' 0.3;
@@ -235,7 +229,7 @@
     border: none;
     background: var(--accent);
     color: #fff;
-    font-family: 'Karla', 'Karla Fallback', sans-serif;
+    font-family: 'Karla', sans-serif;
     font-size: 16px; font-weight: 800;
     cursor: pointer;
     transition: all 0.2s;
@@ -265,7 +259,7 @@
   }
   .header-left { display: flex; align-items: center; gap: 16px; }
   .logo {
-    font-family: 'Karla', 'Karla Fallback', sans-serif;
+    font-family: 'Karla', sans-serif;
     font-size: 17px; font-weight: 800;
     color: var(--header-text);
     letter-spacing: -0.02em;
@@ -281,7 +275,7 @@
   .btn-invite {
     padding: 6px 14px; border-radius: 7px;
     border: 1px solid #5a4a3e; background: transparent;
-    color: #c0aa98; font-family: 'Instrument Sans', 'Instrument Sans Fallback', sans-serif;
+    color: #c0aa98; font-family: 'Instrument Sans', sans-serif;
     font-size: 12px; font-weight: 600;
     cursor: pointer; transition: all 0.15s;
   }
@@ -294,7 +288,7 @@
     border: 1px solid rgba(255,255,255,0.06);
   }
   .room-code {
-    font-family: 'Recursive', 'Recursive Fallback', sans-serif;
+    font-family: 'Recursive', sans-serif;
     font-size: 14px; font-weight: 700;
     font-variation-settings: 'CASL' 0.3;
     color: var(--accent);
@@ -314,7 +308,7 @@
   .btn-leave {
     padding: 6px 14px; border-radius: 7px;
     border: 1px solid #5a4a3e; background: transparent;
-    color: #8a7a6e; font-family: 'Instrument Sans', 'Instrument Sans Fallback', sans-serif;
+    color: #8a7a6e; font-family: 'Instrument Sans', sans-serif;
     font-size: 12px; font-weight: 600;
     cursor: pointer; transition: all 0.15s;
   }
@@ -338,7 +332,7 @@
     pointer-events: auto;
   }
   .countdown-number {
-    font-family: 'Recursive', 'Recursive Fallback', sans-serif;
+    font-family: 'Recursive', sans-serif;
     font-size: 96px; font-weight: 800;
     color: var(--accent);
     font-variation-settings: 'CASL' 0.5;
@@ -411,7 +405,7 @@
   .player-avatar {
     width: 38px; height: 38px; border-radius: 12px;
     display: flex; align-items: center; justify-content: center;
-    font-family: 'Karla', 'Karla Fallback', sans-serif;
+    font-family: 'Karla', sans-serif;
     font-size: 15px; font-weight: 700; color: #fff;
     flex-shrink: 0; position: relative;
   }
@@ -447,7 +441,7 @@
     box-shadow: 0 2px 6px rgba(0,0,0,0.06);
   }
   .player-vote-indicator.revealed-vote .vi-val {
-    font-family: 'Recursive', 'Recursive Fallback', sans-serif;
+    font-family: 'Recursive', sans-serif;
     font-weight: 700; font-size: 15px; color: var(--text);
     font-variation-settings: 'CASL' 0.3;
   }
@@ -491,7 +485,7 @@
     align-items: center; justify-content: center;
   }
   .consensus-ring .ring-num {
-    font-family: 'Recursive', 'Recursive Fallback', sans-serif;
+    font-family: 'Recursive', sans-serif;
     font-size: 16px; font-weight: 800;
     color: var(--accent);
     font-variation-settings: 'CASL' 0.3;
@@ -526,7 +520,7 @@
   }
 
   .stage-status {
-    font-family: 'Karla', 'Karla Fallback', sans-serif;
+    font-family: 'Karla', sans-serif;
     font-size: 13px; font-weight: 700;
     text-transform: uppercase; letter-spacing: 0.12em;
     color: var(--text-muted);
@@ -578,7 +572,7 @@
     border-radius: 10px;
   }
   .stage-card-front .sc-init {
-    font-family: 'Karla', 'Karla Fallback', sans-serif;
+    font-family: 'Karla', sans-serif;
     font-size: 22px; font-weight: 800;
     color: rgba(255,255,255,0.9);
     position: relative; z-index: 1;
@@ -613,7 +607,7 @@
     padding-top: 5px;
   }
   .stage-card-back .sc-value {
-    font-family: 'Recursive', 'Recursive Fallback', sans-serif;
+    font-family: 'Recursive', sans-serif;
     font-size: 30px; font-weight: 800;
     color: var(--text);
     font-variation-settings: 'CASL' 0.5;
@@ -641,7 +635,7 @@
   .btn-reveal {
     padding: 14px 44px; border-radius: 14px; border: none;
     background: var(--accent); color: #fff;
-    font-family: 'Karla', 'Karla Fallback', sans-serif;
+    font-family: 'Karla', sans-serif;
     font-size: 15px; font-weight: 800;
     cursor: pointer; transition: all 0.2s;
     box-shadow: 0 4px 20px var(--accent-glow);
@@ -664,7 +658,7 @@
   .btn-new-round {
     padding: 14px 44px; border-radius: 14px;
     border: 2px solid var(--border); background: var(--surface);
-    color: var(--text); font-family: 'Karla', 'Karla Fallback', sans-serif;
+    color: var(--text); font-family: 'Karla', sans-serif;
     font-size: 15px; font-weight: 700;
     cursor: pointer; transition: all 0.15s;
   }
@@ -684,7 +678,7 @@
     color: var(--text-muted); margin-bottom: 2px;
   }
   .big-average-value {
-    font-family: 'Recursive', 'Recursive Fallback', sans-serif;
+    font-family: 'Recursive', sans-serif;
     font-size: 52px; font-weight: 800;
     color: var(--accent);
     font-variation-settings: 'CASL' 0.5;
@@ -717,7 +711,7 @@
     border: 2px solid var(--border);
     background: var(--card-face);
     display: flex; align-items: center; justify-content: center;
-    font-family: 'Recursive', 'Recursive Fallback', sans-serif;
+    font-family: 'Recursive', sans-serif;
     font-size: 20px; font-weight: 700;
     font-variation-settings: 'CASL' 0.4;
     color: var(--text-secondary);
@@ -834,7 +828,7 @@
     padding: 40px 24px;
   }
   .landing-logo {
-    font-family: 'Karla', 'Karla Fallback', sans-serif;
+    font-family: 'Karla', sans-serif;
     font-size: 48px; font-weight: 800;
     color: #f0e8e2;
     letter-spacing: -0.03em;
@@ -864,7 +858,7 @@
     width: 72px; height: 100px;
     border-radius: 12px;
     display: flex; align-items: center; justify-content: center;
-    font-family: 'Recursive', 'Recursive Fallback', sans-serif;
+    font-family: 'Recursive', sans-serif;
     font-weight: 800;
     font-variation-settings: 'CASL' 0.5;
     font-size: 24px;
@@ -900,7 +894,7 @@
     width: 100%; padding: 16px 24px;
     border-radius: 14px; border: none;
     background: var(--accent); color: #fff;
-    font-family: 'Karla', 'Karla Fallback', sans-serif;
+    font-family: 'Karla', sans-serif;
     font-size: 16px; font-weight: 800;
     cursor: pointer; transition: all 0.2s;
     box-shadow: 0 4px 24px rgba(212,133,106,0.35);
@@ -930,7 +924,7 @@
     border-radius: 12px;
     border: 1px solid rgba(255,255,255,0.1);
     background: rgba(255,255,255,0.05);
-    font-family: 'Recursive', 'Recursive Fallback', sans-serif;
+    font-family: 'Recursive', sans-serif;
     font-size: 16px; font-weight: 600;
     font-variation-settings: 'CASL' 0.3;
     color: #f0e8e2;
@@ -950,7 +944,7 @@
     border: 1px solid rgba(255,255,255,0.12);
     background: rgba(255,255,255,0.05);
     color: #c0aa98;
-    font-family: 'Karla', 'Karla Fallback', sans-serif;
+    font-family: 'Karla', sans-serif;
     font-size: 14px; font-weight: 700;
     cursor: pointer; transition: all 0.15s;
   }
