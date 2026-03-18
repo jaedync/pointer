@@ -565,23 +565,41 @@
     background: var(--card-face);
     border: 2px solid var(--border);
     box-shadow: 0 4px 20px rgba(0,0,0,0.08);
-    transform: rotateY(180deg); gap: 4px;
+    transform: rotateY(180deg);
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .stage-card-back .sc-inlay {
+    position: absolute; inset: 5px;
+    border: 1.5px solid currentColor;
+    border-radius: 9px;
+    opacity: 0.3;
+    pointer-events: none;
+  }
+  .stage-card-back .sc-val-area {
+    flex: 1;
+    display: flex; align-items: center; justify-content: center;
+    padding-top: 5px;
   }
   .stage-card-back .sc-value {
     font-family: 'Recursive', sans-serif;
-    font-size: 32px; font-weight: 800;
+    font-size: 30px; font-weight: 800;
     color: var(--text);
-    font-variation-settings: 'CASL' 0.4;
+    font-variation-settings: 'CASL' 0.5;
     line-height: 1;
   }
-  .stage-card-back .sc-name {
-    font-size: 10px; font-weight: 600;
-    color: var(--text-muted); letter-spacing: 0.04em;
+  .stage-card-back .sc-name-bar {
+    height: 26px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 0 0 12px 12px;
+    padding: 0 8px;
   }
-  /* Color bar at top of revealed card */
-  .stage-card-back .sc-color-bar {
-    position: absolute; top: 0; left: 0; right: 0;
-    height: 4px; border-radius: 14px 14px 0 0;
+  .stage-card-back .sc-name {
+    font-size: 9px; font-weight: 600;
+    color: rgba(255,255,255,0.7);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    max-width: 100%;
+  }
   }
 
   .stage-action {
@@ -1371,10 +1389,10 @@
             <div class="stage-card-front ${isWaiting && !state.room.revealed ? 'sc-waiting' : ''}" style="background:${isWaiting && !state.room.revealed ? '' : color}">
               <span class="sc-init">${isWaiting && !state.room.revealed ? '?' : p.name[0].toUpperCase()}</span>
             </div>
-            <div class="stage-card-back">
-              <div class="sc-color-bar" style="background:${color}"></div>
-              <span class="sc-value">${displayVote}</span>
-              <span class="sc-name">${escapeHtml(p.name)}</span>
+            <div class="stage-card-back" style="color:${color}">
+              <div class="sc-inlay"></div>
+              <div class="sc-val-area"><span class="sc-value">${displayVote}</span></div>
+              <div class="sc-name-bar" style="background:${color}"><span class="sc-name" title="${escapeHtml(p.name)}">${escapeHtml(p.name)}</span></div>
             </div>
           </div>
         </div>
