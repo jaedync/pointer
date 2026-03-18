@@ -251,8 +251,8 @@
   }
   .btn-invite:hover { border-color: var(--accent); color: var(--accent); }
   .invite-group {
-    display: flex; align-items: center; gap: 6px;
-    padding: 4px 4px 4px 12px;
+    display: flex; align-items: center; gap: 4px;
+    padding: 4px;
     border-radius: 10px;
     background: rgba(255,255,255,0.05);
     border: 1px solid rgba(255,255,255,0.06);
@@ -262,8 +262,18 @@
     font-size: 14px; font-weight: 700;
     font-variation-settings: 'CASL' 0.3;
     color: var(--accent);
-    letter-spacing: 0.08em;
+    letter-spacing: 0.1em;
     text-transform: uppercase;
+    padding: 6px 14px;
+    border-radius: 7px;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .room-code:hover {
+    background: rgba(212,133,106,0.12);
+    color: #e8a070;
   }
   .btn-leave {
     padding: 6px 14px; border-radius: 7px;
@@ -1039,8 +1049,7 @@
     </div>
     <div class="header-right">
       <div class="invite-group">
-        <span class="room-code" id="room-code-display" title="Room code">—</span>
-        <button class="btn-invite" id="btn-copy-code" onclick="copyRoomCode()">Copy code</button>
+        <button class="room-code" id="room-code-display" onclick="copyRoomCode()" title="Click to copy room code">—</button>
         <button class="btn-invite" id="btn-copy-link" onclick="copyInviteLink()">Copy link</button>
       </div>
       <button class="btn-leave" onclick="leaveRoom()">Leave</button>
@@ -1434,7 +1443,7 @@
   }
   function copyRoomCode() {
     navigator.clipboard.writeText(state.room.id).then(() => {
-      const btn = document.getElementById('btn-copy-code');
+      const btn = document.getElementById('room-code-display');
       const orig = btn.textContent;
       btn.textContent = 'Copied!';
       setTimeout(() => { btn.textContent = orig; }, 1500);
