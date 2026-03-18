@@ -1296,17 +1296,32 @@
     if (!code) { document.getElementById('landing-room-code').focus(); return; }
     location.hash = `#/join/${code}`;
   }
+  function savePlayerName(name) {
+    try { localStorage.setItem('pointer-player-name', name); } catch {}
+  }
+  function getSavedPlayerName() {
+    try { return localStorage.getItem('pointer-player-name') || ''; } catch { return ''; }
+  }
+  function prefillPlayerName() {
+    const saved = getSavedPlayerName();
+    if (saved) {
+      document.getElementById('lobby-player-name').value = saved;
+      document.getElementById('join-player-name').value = saved;
+    }
+  }
   function createGame() {
     const name = document.getElementById('lobby-game-name').value.trim();
     const playerName = document.getElementById('lobby-player-name').value.trim();
     const votingSystem = document.getElementById('lobby-voting-system').value;
     if (!playerName) { document.getElementById('lobby-player-name').focus(); return; }
+    savePlayerName(playerName);
     send({ type: 'create-room', name: name || 'Planning Poker', playerName, votingSystem });
   }
   function joinGame() {
     const playerName = document.getElementById('join-player-name').value.trim();
     const roomId = document.getElementById('join-overlay').dataset.roomId;
     if (!playerName) { document.getElementById('join-player-name').focus(); return; }
+    savePlayerName(playerName);
     send({ type: 'join-room', roomId, playerName });
   }
   function updateVotingPreview() {
@@ -1571,6 +1586,23 @@
       showLanding();
     } else if (hash.startsWith('#/join/')) {
       const roomId = hash.split('/')[2];
+      // Already in this room? Just stay
+      if (state.room && state.room.id === roomId) {
+        location.hash = `#/room/${roomId}`;
+        return;
+      }
+      // In a different room? Confirm before switching
+      if (state.room) {
+        if (!confirm('Leave your current room to join a different one?')) {
+          location.hash = `#/room/${state.room.id}`;
+          return;
+        }
+        send({ type: 'leave-room' });
+        state.room = null;
+        state.playerId = null;
+        state.myVote = null;
+        state.wasHost = false;
+      }
       showLanding();
       showJoinModal(roomId);
     } else if (hash.startsWith('#/room/')) {
@@ -1581,6 +1613,7 @@
 
   window.addEventListener('hashchange', handleRoute);
   connect();
+  prefillPlayerName();
   handleRoute();
 </script>
 </body>
