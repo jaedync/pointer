@@ -7,7 +7,7 @@ const room = require('./room');
 const PORT = process.env.PORT || 3000;
 const ROOM_TIMEOUT_MS = 30 * 60 * 1000;
 const RECONNECT_WINDOW_MS = 60 * 1000;
-const COUNTDOWN_MS = 3000;
+const COUNTDOWN_MS = parseInt(process.env.COUNTDOWN_MS || '3000', 10);
 
 // ─── HTTP ────────────────────────────────────────────────────────────────────
 const server = http.createServer((req, res) => {
@@ -185,3 +185,5 @@ setInterval(() => {
 server.listen(PORT, () => {
   console.log(`Pointer running at http://localhost:${PORT}`);
 });
+
+module.exports = server;
