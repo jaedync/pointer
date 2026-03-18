@@ -775,6 +775,7 @@
     min-height: 100vh;
     display: flex; flex-direction: column;
     align-items: center; justify-content: center;
+    position: relative; z-index: 1;
     position: relative;
     overflow: hidden;
   }
@@ -996,74 +997,6 @@
 <body>
 
 <!-- ═══════════════════════════════════════
-     LOBBY MODAL (Create Game)
-     ═══════════════════════════════════════ -->
-<div class="lobby-overlay" id="lobby-overlay">
-  <div class="lobby-card">
-    <div class="lobby-header">
-      <button class="lobby-close" onclick="hideModals()">&times;</button>
-      <div class="lobby-logo">Pointer<span class="logo-dot"></span></div>
-      <div class="lobby-subtitle">Free, fast scrum poker for your team</div>
-    </div>
-    <div class="lobby-body">
-      <div class="field">
-        <label class="field-label">Game name</label>
-        <input class="field-input" id="lobby-game-name" type="text" placeholder="e.g. Sprint 42 Planning" onkeydown="if(event.key==='Enter') createGame()">
-      </div>
-
-      <div class="field">
-        <label class="field-label">Your name</label>
-        <input class="field-input" id="lobby-player-name" type="text" placeholder="e.g. Your name" onkeydown="if(event.key==='Enter') createGame()">
-      </div>
-
-      <div class="field">
-        <label class="field-label">Voting system</label>
-        <div class="field-select-wrap">
-          <select class="field-select" id="lobby-voting-system" onchange="updateVotingPreview()">
-            <option value="tshirt" selected>T-Shirt Sizes</option>
-            <option value="fib">Fibonacci</option>
-            <option value="powers">Powers of 2</option>
-            <option value="simple">Simple (1–5)</option>
-          </select>
-          <span class="field-select-arrow">▾</span>
-        </div>
-        <div class="system-preview" id="system-preview">
-          <span class="system-chip">XS</span>
-          <span class="system-chip">S</span>
-          <span class="system-chip">M</span>
-          <span class="system-chip">L</span>
-          <span class="system-chip">XL</span>
-          <span class="system-chip">?</span>
-        </div>
-      </div>
-
-      <button class="lobby-btn" id="btn-create-game" onclick="createGame()">Create Game</button>
-    </div>
-  </div>
-</div>
-
-<!-- ═══════════════════════════════════════
-     JOIN MODAL (Join existing game)
-     ═══════════════════════════════════════ -->
-<div class="lobby-overlay hidden" id="join-overlay">
-  <div class="lobby-card">
-    <div class="lobby-header">
-      <div class="lobby-logo">Pointer<span class="logo-dot"></span></div>
-      <div class="lobby-subtitle">Join a game</div>
-    </div>
-    <div class="lobby-body">
-      <div class="field">
-        <label class="field-label">Your name</label>
-        <input class="field-input" id="join-player-name" type="text" placeholder="e.g. Your name" onkeydown="if(event.key==='Enter') joinGame()">
-      </div>
-
-      <div id="join-error" style="display:none; padding:10px 14px; border-radius:10px; background:#fdecea; color:#c0392b; font-size:13px; font-weight:500;"></div>
-      <button class="lobby-btn" id="btn-join-game" onclick="joinGame()">Join Game</button>
-    </div>
-  </div>
-</div>
-
-<!-- ═══════════════════════════════════════
      LANDING PAGE: The Table
      ═══════════════════════════════════════ -->
 <div class="landing active" id="landing">
@@ -1158,6 +1091,71 @@
         <div class="hand-card">XL</div>
         <div class="hand-card">?</div>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════
+     LOBBY MODAL (Create Game)
+     Placed after landing + app so it paints on top
+     ═══════════════════════════════════════ -->
+<div class="lobby-overlay" id="lobby-overlay">
+  <div class="lobby-card">
+    <div class="lobby-header">
+      <button class="lobby-close" onclick="hideModals()">&times;</button>
+      <div class="lobby-logo">Pointer<span class="logo-dot"></span></div>
+      <div class="lobby-subtitle">Free, fast scrum poker for your team</div>
+    </div>
+    <div class="lobby-body">
+      <div class="field">
+        <label class="field-label">Game name</label>
+        <input class="field-input" id="lobby-game-name" type="text" placeholder="e.g. Sprint 42 Planning" onkeydown="if(event.key==='Enter') createGame()">
+      </div>
+      <div class="field">
+        <label class="field-label">Your name</label>
+        <input class="field-input" id="lobby-player-name" type="text" placeholder="e.g. Your name" onkeydown="if(event.key==='Enter') createGame()">
+      </div>
+      <div class="field">
+        <label class="field-label">Voting system</label>
+        <div class="field-select-wrap">
+          <select class="field-select" id="lobby-voting-system" onchange="updateVotingPreview()">
+            <option value="tshirt" selected>T-Shirt Sizes</option>
+            <option value="fib">Fibonacci</option>
+            <option value="powers">Powers of 2</option>
+            <option value="simple">Simple (1–5)</option>
+          </select>
+          <span class="field-select-arrow">▾</span>
+        </div>
+        <div class="system-preview" id="system-preview">
+          <span class="system-chip">XS</span>
+          <span class="system-chip">S</span>
+          <span class="system-chip">M</span>
+          <span class="system-chip">L</span>
+          <span class="system-chip">XL</span>
+          <span class="system-chip">?</span>
+        </div>
+      </div>
+      <button class="lobby-btn" id="btn-create-game" onclick="createGame()">Create Game</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════
+     JOIN MODAL (Join existing game)
+     ═══════════════════════════════════════ -->
+<div class="lobby-overlay hidden" id="join-overlay">
+  <div class="lobby-card">
+    <div class="lobby-header">
+      <div class="lobby-logo">Pointer<span class="logo-dot"></span></div>
+      <div class="lobby-subtitle">Join a game</div>
+    </div>
+    <div class="lobby-body">
+      <div class="field">
+        <label class="field-label">Your name</label>
+        <input class="field-input" id="join-player-name" type="text" placeholder="e.g. Your name" onkeydown="if(event.key==='Enter') joinGame()">
+      </div>
+      <div id="join-error" style="display:none; padding:10px 14px; border-radius:10px; background:#fdecea; color:#c0392b; font-size:13px; font-weight:500;"></div>
+      <button class="lobby-btn" id="btn-join-game" onclick="joinGame()">Join Game</button>
     </div>
   </div>
 </div>
@@ -1280,15 +1278,18 @@
   function showLobbyModal() {
     document.getElementById('lobby-overlay').classList.remove('hidden');
     document.getElementById('join-overlay').classList.add('hidden');
+    document.getElementById('landing').style.pointerEvents = 'none';
   }
   function showJoinModal(roomId) {
     document.getElementById('join-overlay').classList.remove('hidden');
     document.getElementById('lobby-overlay').classList.add('hidden');
     document.getElementById('join-overlay').dataset.roomId = roomId;
+    document.getElementById('landing').style.pointerEvents = 'none';
   }
   function hideModals() {
     document.getElementById('lobby-overlay').classList.add('hidden');
     document.getElementById('join-overlay').classList.add('hidden');
+    document.getElementById('landing').style.pointerEvents = '';
   }
   function joinFromLanding() {
     const code = document.getElementById('landing-room-code').value.trim();
