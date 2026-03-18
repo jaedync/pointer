@@ -10,15 +10,34 @@ const RECONNECT_WINDOW_MS = 60 * 1000;
 const COUNTDOWN_MS = parseInt(process.env.COUNTDOWN_MS || '3000', 10);
 
 // ─── HTTP ────────────────────────────────────────────────────────────────────
+const MIME_TYPES = {
+  '.html': 'text/html',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.ico': 'image/x-icon',
+};
+
 const server = http.createServer((req, res) => {
-  const htmlPath = path.join(__dirname, 'public', 'index.html');
-  fs.readFile(htmlPath, (err, data) => {
+  const ext = path.extname(req.url);
+  const isStatic = ext && MIME_TYPES[ext];
+  const filePath = isStatic
+    ? path.join(__dirname, 'public', path.basename(req.url))
+    : path.join(__dirname, 'public', 'index.html');
+  const contentType = MIME_TYPES[ext] || 'text/html';
+
+  fs.readFile(filePath, (err, data) => {
     if (err) {
+      // Fall back to index.html for unknown routes
+      if (isStatic) {
+        res.writeHead(404);
+        res.end('Not Found');
+        return;
+      }
       res.writeHead(500);
       res.end('Internal Server Error');
       return;
     }
-    res.writeHead(200, { 'Content-Type': 'text/html' });
+    res.writeHead(200, { 'Content-Type': contentType });
     res.end(data);
   });
 });
