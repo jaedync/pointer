@@ -705,6 +705,14 @@
   .hand-card:nth-child(8) { transform: rotate(18deg); z-index: 8; }
   .hand-card:nth-child(9) { transform: rotate(22deg); z-index: 9; }
 
+  /* Invisible hit area below card to prevent hover jitter when card lifts */
+  .hand-card::after {
+    content: '';
+    position: absolute;
+    left: -4px; right: -4px;
+    bottom: -24px;
+    height: 24px;
+  }
   .hand-card:hover {
     border-color: var(--accent); color: var(--accent);
     z-index: 20 !important;
@@ -923,6 +931,27 @@
     z-index: 2;
   }
 
+  /* ─── Toast notification ─── */
+  .toast {
+    position: fixed;
+    top: 64px; left: 50%;
+    transform: translateX(-50%) translateY(-10px);
+    padding: 10px 24px;
+    border-radius: 10px;
+    background: var(--header-bg);
+    color: var(--header-text);
+    font-size: 13px; font-weight: 600;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+    z-index: 80;
+    opacity: 0;
+    transition: opacity 0.3s, transform 0.3s;
+    pointer-events: none;
+  }
+  .toast.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+
   /* ─── Responsive: Mobile ─── */
   @media (max-width: 768px) {
     .game-main {
@@ -1078,10 +1107,6 @@
         <button class="btn-invite" id="btn-copy-link" onclick="copyInviteLink()">Copy link</button>
       </div>
       <button class="btn-leave" onclick="leaveRoom()">Leave</button>
-      <div class="user-pill">
-        <div class="user-av" id="user-av">?</div>
-        <span id="user-name-display"></span>
-      </div>
     </div>
   </div>
 
@@ -1153,6 +1178,7 @@
     playerId: null,
     room: null,
     myVote: null,
+    wasHost: false,
   };
 
   let ws = null;
@@ -1190,6 +1216,7 @@
     switch (msg.type) {
       case 'room-created':
         state.playerId = msg.playerId;
+        state.wasHost = true; // creator is host, don't toast
         location.hash = `#/room/${msg.roomId}`;
         break;
       case 'joined':
@@ -1290,6 +1317,14 @@
   // ─── Render Functions ─────────────────────────────────────────────────────────
   function render() {
     if (!state.room) return;
+
+    // Detect host promotion
+    const me = state.room.players.find(p => p.id === state.playerId);
+    if (me && me.isHost && !state.wasHost) {
+      showToast('You are now the host');
+    }
+    state.wasHost = me?.isHost || false;
+
     // Clear countdown overlay when reveal arrives
     if (state.room.revealed) {
       state.countdown = null;
@@ -1313,9 +1348,6 @@
     document.getElementById('room-code-display').textContent = state.room.id;
     const me = state.room.players.find(p => p.id === state.playerId);
     if (me) {
-      document.getElementById('user-av').style.background = COLORS[me.color];
-      document.getElementById('user-av').textContent = me.name[0].toUpperCase();
-      document.getElementById('user-name-display').textContent = me.name;
     }
   }
 
@@ -1457,10 +1489,12 @@
   function reveal() { send({ type: 'reveal' }); }
   function newRound() { send({ type: 'new-round' }); }
   function leaveRoom() {
+    if (!confirm('Leave this room?')) return;
     send({ type: 'leave-room' });
     state.room = null;
     state.playerId = null;
     state.myVote = null;
+    state.wasHost = false;
     location.hash = '#/';
   }
 
@@ -1503,6 +1537,19 @@
     } else if (overlay) {
       overlay.classList.remove('show');
     }
+  }
+
+  function showToast(message) {
+    let toast = document.getElementById('toast');
+    if (!toast) {
+      toast = document.createElement('div');
+      toast.id = 'toast';
+      toast.className = 'toast';
+      document.body.appendChild(toast);
+    }
+    toast.textContent = message;
+    toast.classList.add('show');
+    setTimeout(() => toast.classList.remove('show'), 3000);
   }
 
   function toggleColorPicker(event) {
