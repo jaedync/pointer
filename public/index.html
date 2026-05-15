@@ -1316,7 +1316,7 @@
     document.getElementById('landing').style.pointerEvents = '';
   }
   function joinFromLanding() {
-    const code = document.getElementById('landing-room-code').value.trim();
+    const code = document.getElementById('landing-room-code').value.trim().toLowerCase();
     if (!code) { document.getElementById('landing-room-code').focus(); return; }
     location.hash = `#/join/${code}`;
   }
@@ -1609,7 +1609,7 @@
     if (hash === '#/' || hash === '') {
       showLanding();
     } else if (hash.startsWith('#/join/')) {
-      const roomId = hash.split('/')[2];
+      const roomId = (hash.split('/')[2] || '').toLowerCase();
       // Already in this room? Just stay
       if (state.room && state.room.id === roomId) {
         location.hash = `#/room/${roomId}`;

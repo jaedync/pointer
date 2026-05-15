@@ -179,6 +179,17 @@ describe('Server Integration', () => {
       assert.equal(err.message, 'Room not found');
       await c.close();
     });
+
+    it('joins case-insensitively (uppercase code matches lowercase room id)', async () => {
+      const { client: alice, roomId } = await createRoom('Case', 'Alice', 'tshirt');
+      // Room ids are lowercase base36, but the UI renders them uppercase via CSS;
+      // users naturally type/share the uppercase form. Server must accept either.
+      const { client: bob } = await joinRoom(roomId.toUpperCase(), 'Bob');
+      const aliceState = await alice.waitFor('room-state');
+      assert.equal(aliceState.room.players.length, 2);
+      await alice.close();
+      await bob.close();
+    });
   });
 
   // ─── Voting ────────────────────────────────────────────────────────────

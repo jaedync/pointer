@@ -82,7 +82,10 @@ wss.on('connection', (ws) => {
       }
 
       case 'join-room': {
-        const r = rooms.get(msg.roomId);
+        // Room ids are stored lowercase (base36 from Math.random); the UI renders
+        // them uppercase via CSS, so accept either casing from clients.
+        const roomId = typeof msg.roomId === 'string' ? msg.roomId.toLowerCase() : msg.roomId;
+        const r = rooms.get(roomId);
         if (!r) {
           ws.send(JSON.stringify({ type: 'error', message: 'Room not found' }));
           return;
