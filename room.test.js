@@ -537,6 +537,8 @@ describe('vote during countdown', () => {
     assert.equal(reveal(room, host).ok, true);
     room._countdownTimer = setTimeout(() => {}, 1000); // simulate pending countdown
 
+    assert.equal(room.revealed, false); // countdown pending, not yet revealed
+
     // A player changes their mind during the countdown window.
     assert.equal(vote(room, bob, '8'), true);
     assert.equal(room.players.get(bob).vote, '8');
