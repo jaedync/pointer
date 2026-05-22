@@ -608,23 +608,22 @@
   }
   .stage-card-back .sc-value {
     font-family: 'Recursive', sans-serif;
-    font-size: 30px; font-weight: 800;
+    font-size: 42px; font-weight: 800;
     color: var(--text);
     font-variation-settings: 'CASL' 0.5;
     line-height: 1;
   }
   .stage-card-back .sc-name-bar {
-    height: 26px;
+    height: 36px;
     display: flex; align-items: center; justify-content: center;
     border-radius: 0 0 12px 12px;
     padding: 0 8px;
   }
   .stage-card-back .sc-name {
-    font-size: 9px; font-weight: 600;
-    color: rgba(255,255,255,0.7);
+    font-size: 14px; font-weight: 700;
+    color: rgba(255,255,255,0.95);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     max-width: 100%;
-  }
   }
 
   .stage-action {
@@ -1010,6 +1009,9 @@
       transform: translateY(-10px) scale(1.08) !important;
     }
     .stage-card { width: 60px; height: 84px; }
+    .stage-card-back .sc-value { font-size: 30px; }
+    .stage-card-back .sc-name { font-size: 11px; }
+    .stage-card-back .sc-name-bar { height: 28px; }
     .lobby-card { width: calc(100% - 32px); margin: 16px; }
     .landing-logo { font-size: 36px; }
     .landing-hero-cards { width: 280px; height: 120px; }
