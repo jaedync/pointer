@@ -106,6 +106,36 @@ function applyReveal(room) {
   return { hasConsensus, votes };
 }
 
+// Classify a revealed round. Excludes '?' votes and non-votes from the tally.
+// Returns { state, values, maxCount } where state is one of:
+//   'none'      — no value is shared by 2+ players (or too few votes)
+//   'unanimous' — one value, and every voter chose it
+//   'consensus' — one value leads but not everyone agrees
+//   'split'     — two or more values tie for the lead
+function computeConsensus(room) {
+  const players = [...room.players.values()];
+  const voters = players.filter(p => p.vote);            // voted anything, incl '?'
+  const valueVotes = voters.map(p => p.vote).filter(v => v !== '?');
+
+  const counts = {};
+  for (const v of valueVotes) counts[v] = (counts[v] || 0) + 1;
+
+  const values = Object.keys(counts);
+  let maxCount = 0;
+  for (const v of values) if (counts[v] > maxCount) maxCount = counts[v];
+
+  if (maxCount < 2) return { state: 'none', values: [], maxCount };
+
+  const topValues = values.filter(v => counts[v] === maxCount);
+  if (topValues.length === 1 && maxCount === voters.length) {
+    return { state: 'unanimous', values: topValues, maxCount };
+  }
+  if (topValues.length === 1) {
+    return { state: 'consensus', values: topValues, maxCount };
+  }
+  return { state: 'split', values: topValues, maxCount };
+}
+
 function newRound(room, playerId) {
   const player = room.players.get(playerId);
   if (!player || !player.isHost) return false;
@@ -157,6 +187,7 @@ module.exports = {
   clearVote,
   reveal,
   applyReveal,
+  computeConsensus,
   newRound,
   changeColor,
   serializeRoom,

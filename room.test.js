@@ -12,6 +12,7 @@ const {
   clearVote,
   reveal,
   applyReveal,
+  computeConsensus,
   newRound,
   changeColor,
   serializeRoom,
@@ -418,5 +419,75 @@ describe('serializeRoom', () => {
     assert.equal(serialized.revealed, false);
     assert.equal(serialized.roundNumber, 0);
     assert.equal(serialized.consensusCount, 0);
+  });
+});
+
+// ─── computeConsensus ────────────────────────────────────────────────────────
+
+describe('computeConsensus', () => {
+  // Build a room whose players carry the given votes. `null` = did not vote.
+  function roomWithVotes(votes) {
+    const room = createRoom('Test', 'fib');
+    votes.forEach((v, i) => {
+      const { playerId } = addPlayer(room, 'P' + i);
+      if (v !== null) room.players.get(playerId).vote = v;
+    });
+    return room;
+  }
+
+  it('no consensus when every vote is different', () => {
+    const r = computeConsensus(roomWithVotes(['1', '2', '3', '5']));
+    assert.equal(r.state, 'none');
+    assert.deepEqual(r.values, []);
+  });
+
+  it('no consensus with a single voter', () => {
+    assert.equal(computeConsensus(roomWithVotes(['5'])).state, 'none');
+  });
+
+  it('no consensus when nobody voted', () => {
+    assert.equal(computeConsensus(roomWithVotes([null, null])).state, 'none');
+  });
+
+  it('no consensus when every vote is "?"', () => {
+    assert.equal(computeConsensus(roomWithVotes(['?', '?', '?'])).state, 'none');
+  });
+
+  it('unanimous when all players voted the same value', () => {
+    const r = computeConsensus(roomWithVotes(['5', '5', '5']));
+    assert.equal(r.state, 'unanimous');
+    assert.deepEqual(r.values, ['5']);
+  });
+
+  it('consensus when one value leads but not everyone agrees', () => {
+    const r = computeConsensus(roomWithVotes(['5', '5', '3']));
+    assert.equal(r.state, 'consensus');
+    assert.deepEqual(r.values, ['5']);
+  });
+
+  it('a "?" vote prevents unanimous, falls back to consensus', () => {
+    const r = computeConsensus(roomWithVotes(['5', '5', '?']));
+    assert.equal(r.state, 'consensus');
+    assert.deepEqual(r.values, ['5']);
+  });
+
+  it('split on a two-way tie', () => {
+    const r = computeConsensus(roomWithVotes(['3', '3', '5', '5']));
+    assert.equal(r.state, 'split');
+    assert.equal(r.values.length, 2);
+    assert.ok(r.values.includes('3') && r.values.includes('5'));
+  });
+
+  it('split on a three-way tie', () => {
+    const r = computeConsensus(roomWithVotes(['1', '1', '2', '2', '3', '3']));
+    assert.equal(r.state, 'split');
+    assert.equal(r.values.length, 3);
+  });
+
+  it('excludes "?" votes from the tally', () => {
+    // 5,5 lead with count 2; the two "?" voters do not form a camp.
+    const r = computeConsensus(roomWithVotes(['5', '5', '?', '?']));
+    assert.equal(r.state, 'consensus');
+    assert.deepEqual(r.values, ['5']);
   });
 });
