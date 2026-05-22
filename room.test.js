@@ -463,6 +463,14 @@ describe('computeConsensus', () => {
     const r = computeConsensus(roomWithVotes(['5', '5', '3']));
     assert.equal(r.state, 'consensus');
     assert.deepEqual(r.values, ['5']);
+    assert.equal(r.maxCount, 2);
+  });
+
+  it('unanimous counts voters only — a non-voter does not block it', () => {
+    // Two players voted 5, one player did not vote at all.
+    const r = computeConsensus(roomWithVotes(['5', '5', null]));
+    assert.equal(r.state, 'unanimous');
+    assert.deepEqual(r.values, ['5']);
   });
 
   it('a "?" vote prevents unanimous, falls back to consensus', () => {
