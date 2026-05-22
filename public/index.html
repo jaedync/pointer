@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Pointer – Scrum Poker</title>
+<title>Pointer · Scrum Poker</title>
 <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
@@ -1310,6 +1310,7 @@
     document.getElementById('landing').classList.add('active');
     document.getElementById('app').classList.remove('active');
     hideModals();
+    updatePageTitle();
   }
   function showGame() {
     document.getElementById('landing').classList.remove('active');
@@ -1393,12 +1394,21 @@
     renderSidebar();
     renderStage();
     renderHand();
+    updatePageTitle();
   }
 
   function escapeHtml(str) {
     const div = document.createElement('div');
     div.textContent = str;
     return div.innerHTML;
+  }
+
+  function updatePageTitle() {
+    if (state.room && document.getElementById('app').classList.contains('active')) {
+      document.title = `${state.room.name} · Pointer`;
+    } else {
+      document.title = 'Pointer · Scrum Poker';
+    }
   }
 
   function renderHeader() {
