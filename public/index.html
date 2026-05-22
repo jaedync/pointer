@@ -1505,7 +1505,7 @@
   function renderHand() {
     const container = document.getElementById('hand-cards');
     const system = state.room.votingSystem;
-    const locked = state.room.revealed || state.countdown;
+    const locked = state.room.revealed;
     container.classList.toggle('hand-locked', !!locked);
     container.innerHTML = system.map(value => {
       const picked = state.myVote === value ? 'picked' : '';
@@ -1515,7 +1515,7 @@
 
   // ─── Action Functions ─────────────────────────────────────────────────────────
   function pickCard(value) {
-    if (state.room.revealed || state.countdown) return;
+    if (state.room.revealed) return;
     if (state.myVote === value) {
       state.myVote = null;
       send({ type: 'clear-vote' });
@@ -1571,9 +1571,6 @@
       }
       overlay.innerHTML = `<div class="countdown-number">${state.countdown}</div><div class="countdown-label">${escapeHtml(state.countdownBy)} is revealing...</div>`;
       overlay.classList.add('show');
-      // Also lock the hand
-      const handCards = document.getElementById('hand-cards');
-      if (handCards) handCards.classList.add('hand-locked');
     } else if (overlay) {
       overlay.classList.remove('show');
     }

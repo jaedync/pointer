@@ -521,3 +521,26 @@ describe('serializeRoom consensus', () => {
     assert.deepEqual(consensus.values, ['5']);
   });
 });
+
+// ─── voting during the reveal countdown ──────────────────────────────────────
+
+describe('vote during countdown', () => {
+  it('accepts a vote while a reveal countdown is pending', () => {
+    const room = createRoom('Test', 'fib');
+    const { playerId: host } = addPlayer(room, 'Host');
+    const { playerId: bob } = addPlayer(room, 'Bob');
+    vote(room, host, '3');
+    vote(room, bob, '3');
+
+    // Host initiates the reveal. The server then sets _countdownTimer and
+    // calls applyReveal only when it fires — revealed is still false here.
+    assert.equal(reveal(room, host).ok, true);
+    room._countdownTimer = setTimeout(() => {}, 1000); // simulate pending countdown
+
+    // A player changes their mind during the countdown window.
+    assert.equal(vote(room, bob, '8'), true);
+    assert.equal(room.players.get(bob).vote, '8');
+
+    clearTimeout(room._countdownTimer);
+  });
+});
