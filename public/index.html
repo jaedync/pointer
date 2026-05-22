@@ -509,9 +509,13 @@
 
   /* ─── Stage ─── */
   .stage {
-    display: flex; flex-direction: column;
-    align-items: center; justify-content: center;
+    display: block;
     padding: 48px 32px; position: relative; overflow: hidden;
+  }
+  .stage-top {
+    position: absolute; top: 52px; left: 0; right: 0;
+    display: flex; align-items: center; justify-content: center;
+    min-height: 64px;
   }
   .stage::before {
     content: ''; position: absolute; inset: 0;
@@ -524,14 +528,16 @@
     font-size: 13px; font-weight: 700;
     text-transform: uppercase; letter-spacing: 0.12em;
     color: var(--text-muted);
-    margin-bottom: 32px; position: relative; z-index: 1;
+    position: relative; z-index: 1;
   }
   .stage-status .count { color: var(--accent); }
 
   .stage-cards {
+    position: absolute; top: 50%; left: 0; right: 0;
+    transform: translateY(-50%);
     display: flex; gap: 16px;
     align-items: flex-end; justify-content: center;
-    min-height: 200px; position: relative; z-index: 1;
+    z-index: 1;
   }
   .stage-card {
     width: 80px; height: 112px;
@@ -594,6 +600,10 @@
     align-items: stretch;
     overflow: hidden;
   }
+  .stage-card-back.match {
+    border-color: #6aad8c;
+    box-shadow: 0 0 0 2.5px #6aad8c, 0 4px 12px rgba(106,173,140,0.30);
+  }
   .stage-card-back .sc-inlay {
     position: absolute; inset: 5px;
     border: 1.5px solid currentColor;
@@ -627,8 +637,8 @@
   }
 
   .stage-action {
-    margin-top: 36px; position: relative; z-index: 1;
-    min-height: 52px;
+    position: absolute; bottom: 52px; left: 0; right: 0;
+    min-height: 52px; z-index: 1;
     display: flex; align-items: center; justify-content: center;
   }
   .btn-reveal {
@@ -663,26 +673,31 @@
   }
   .btn-new-round:hover { border-color: var(--accent); color: var(--accent); }
 
-  /* ─── Results: big average ─── */
-  .big-average {
-    text-align: center; margin-top: 16px;
-    position: relative; z-index: 1;
-    opacity: 0; transition: opacity 0.4s;
-    min-height: 70px;
+  /* ─── Results: consensus pill ─── */
+  .consensus-pill { opacity: 0; transition: opacity 0.3s; }
+  .consensus-pill.show { opacity: 1; }
+  .cpill {
+    display: inline-flex; align-items: center; gap: 12px;
+    border-radius: 999px; padding: 8px 14px 8px 22px;
   }
-  .big-average.show { opacity: 1; }
-  .big-average-label {
-    font-size: 11px; font-weight: 700;
-    letter-spacing: 0.1em; text-transform: uppercase;
-    color: var(--text-muted); margin-bottom: 2px;
+  .cpill-real { background: var(--accent); box-shadow: 0 6px 20px var(--accent-glow); }
+  .cpill-good { background: #6aad8c; box-shadow: 0 6px 20px rgba(106,173,140,0.34); }
+  .cpill-none { background: var(--waiting); box-shadow: 0 6px 18px rgba(181,168,152,0.3); }
+  .cpill-label {
+    font-family: 'Karla', sans-serif;
+    font-size: 11px; font-weight: 800;
+    text-transform: uppercase; letter-spacing: 0.13em;
+    color: rgba(255,255,255,0.85);
   }
-  .big-average-value {
+  .cpill-val {
     font-family: 'Recursive', sans-serif;
-    font-size: 52px; font-weight: 800;
-    color: var(--accent);
-    font-variation-settings: 'CASL' 0.5;
-    line-height: 1; letter-spacing: -0.03em;
+    font-weight: 800; font-size: 25px; color: #fff; line-height: 1;
+    background: rgba(255,255,255,0.16); border-radius: 999px;
+    min-width: 44px; height: 44px;
+    display: flex; align-items: center; justify-content: center;
+    padding: 0 11px;
   }
+  .cpill-dash { color: rgba(255,255,255,0.7); }
 
   /* ─── Hand ─── */
   .hand {
@@ -1098,12 +1113,11 @@
     </div>
 
     <div class="stage">
-      <div class="stage-status" id="stage-status">Waiting for players...</div>
-      <div class="stage-cards" id="stage-cards"></div>
-      <div class="big-average" id="big-average">
-        <div class="big-average-label" id="avg-label">Consensus</div>
-        <div class="big-average-value" id="avg-value">—</div>
+      <div class="stage-top">
+        <div class="stage-status" id="stage-status">Waiting for players...</div>
+        <div class="consensus-pill" id="consensus-pill"></div>
       </div>
+      <div class="stage-cards" id="stage-cards"></div>
       <div class="stage-action" id="stage-action"></div>
     </div>
 
@@ -1437,35 +1451,57 @@
     document.getElementById('consensus-ring-fill').setAttribute('stroke-dashoffset', circumference * (1 - pct));
   }
 
+  function consensusPillHTML(consensus) {
+    if (!consensus || consensus.state === 'none') {
+      return `<div class="cpill cpill-none"><span class="cpill-label">No consensus</span>` +
+             `<span class="cpill-val cpill-dash">—</span></div>`;
+    }
+    const stateClass = consensus.state === 'unanimous' ? 'cpill-good' : 'cpill-real';
+    const label = consensus.state === 'unanimous' ? 'Unanimous'
+                : consensus.state === 'split' ? 'Split' : 'Consensus';
+    const vals = consensus.values
+      .map(v => `<span class="cpill-val">${escapeHtml(String(v))}</span>`)
+      .join('');
+    return `<div class="cpill ${stateClass}"><span class="cpill-label">${label}</span>${vals}</div>`;
+  }
+
   function renderStage() {
     const cards = document.getElementById('stage-cards');
     const status = document.getElementById('stage-status');
     const action = document.getElementById('stage-action');
-    const avg = document.getElementById('big-average');
+    const pill = document.getElementById('consensus-pill');
     const votedCount = state.room.players.filter(p => p.vote).length;
     const totalCount = state.room.players.length;
     const me = state.room.players.find(p => p.id === state.playerId);
     const isHost = me?.isHost;
+    const revealed = state.room.revealed;
+    const consensus = state.room.consensus;
 
-    if (state.room.revealed) {
-      status.innerHTML = 'Results';
+    // Top zone: voting status while voting, consensus pill once revealed.
+    if (revealed) {
+      status.style.display = 'none';
+      pill.innerHTML = consensusPillHTML(consensus);
+      pill.classList.add('show');
     } else {
+      status.style.display = '';
       status.innerHTML = `<span class="count">${votedCount}</span> of ${totalCount} voted`;
+      pill.classList.remove('show');
     }
 
     cards.innerHTML = state.room.players.map((p, i) => {
       const color = COLORS[p.color];
       const isWaiting = !p.vote || p.vote === null;
-      const displayVote = state.room.revealed ? (p.vote || '—') : '';
-      const flipClass = state.room.revealed ? 'flip' : '';
-      const delay = state.room.revealed ? `transition-delay: ${i * 0.1}s` : '';
+      const displayVote = revealed ? (p.vote || '—') : '';
+      const flipClass = revealed ? 'flip' : '';
+      const delay = revealed ? `transition-delay: ${i * 0.1}s` : '';
+      const isMatch = revealed && consensus && consensus.values.includes(String(p.vote));
       return `
         <div class="stage-card" style="animation-delay:${i * 0.06}s">
           <div class="stage-card-inner ${flipClass}" style="${delay}">
-            <div class="stage-card-front ${isWaiting && !state.room.revealed ? 'sc-waiting' : ''}" style="background:${isWaiting && !state.room.revealed ? '' : color}">
-              <span class="sc-init">${isWaiting && !state.room.revealed ? '?' : p.name[0].toUpperCase()}</span>
+            <div class="stage-card-front ${isWaiting && !revealed ? 'sc-waiting' : ''}" style="background:${isWaiting && !revealed ? '' : color}">
+              <span class="sc-init">${isWaiting && !revealed ? '?' : p.name[0].toUpperCase()}</span>
             </div>
-            <div class="stage-card-back" style="color:${color}">
+            <div class="stage-card-back ${isMatch ? 'match' : ''}" style="color:${color}">
               <div class="sc-inlay"></div>
               <div class="sc-val-area"><span class="sc-value">${displayVote}</span></div>
               <div class="sc-name-bar" style="background:${color}"><span class="sc-name" title="${escapeHtml(p.name)}">${escapeHtml(p.name)}</span></div>
@@ -1475,27 +1511,13 @@
       `;
     }).join('');
 
-    if (state.room.revealed) {
+    if (revealed) {
       if (isHost) {
         action.innerHTML = '<button class="btn-new-round" onclick="newRound()">Start New Round</button>';
       } else {
         action.innerHTML = '<span class="stage-hint">Waiting for host to start new round...</span>';
       }
-      const numericVotes = state.room.players.map(p => p.vote).filter(v => v && v !== '?' && v !== '—');
-      avg.classList.add('show');
-      if (numericVotes.length > 0 && !isNaN(Number(numericVotes[0]))) {
-        const sum = numericVotes.reduce((a, b) => a + Number(b), 0);
-        document.getElementById('avg-label').textContent = 'Average';
-        document.getElementById('avg-value').textContent = (sum / numericVotes.length).toFixed(1);
-      } else {
-        const counts = {};
-        numericVotes.forEach(v => { counts[v] = (counts[v] || 0) + 1; });
-        const mode = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
-        document.getElementById('avg-label').textContent = 'Consensus';
-        document.getElementById('avg-value').textContent = mode ? mode[0] : '—';
-      }
     } else {
-      avg.classList.remove('show');
       if (isHost) {
         const allVoted = votedCount === totalCount && totalCount > 0;
         action.innerHTML = `<button class="btn-reveal ${allVoted ? 'all-in' : ''}" onclick="reveal()" ${votedCount === 0 ? 'disabled style="opacity:0.5;cursor:default;"' : ''}>Reveal Cards</button>`;
