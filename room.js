@@ -164,6 +164,7 @@ function serializeRoom(room) {
     revealed: room.revealed,
     roundNumber: room.roundNumber,
     consensusCount: room.consensusCount,
+    consensus: room.revealed ? computeConsensus(room) : null,
     players: [...room.players.entries()].map(([sid, p]) => ({
       id: sid,
       name: p.name,

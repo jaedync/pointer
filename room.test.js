@@ -499,3 +499,25 @@ describe('computeConsensus', () => {
     assert.deepEqual(r.values, ['5']);
   });
 });
+
+// ─── serializeRoom consensus field ───────────────────────────────────────────
+
+describe('serializeRoom consensus', () => {
+  it('is null before reveal', () => {
+    const room = createRoom('Test', 'fib');
+    addPlayer(room, 'Alice');
+    assert.equal(serializeRoom(room).consensus, null);
+  });
+
+  it('is populated after reveal', () => {
+    const room = createRoom('Test', 'fib');
+    const { playerId: a } = addPlayer(room, 'Alice');
+    const { playerId: b } = addPlayer(room, 'Bob');
+    vote(room, a, '5');
+    vote(room, b, '5');
+    applyReveal(room);
+    const consensus = serializeRoom(room).consensus;
+    assert.equal(consensus.state, 'unanimous');
+    assert.deepEqual(consensus.values, ['5']);
+  });
+});
