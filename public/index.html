@@ -1211,8 +1211,7 @@
     ws = new WebSocket(`${protocol}//${location.host}`);
     ws.onopen = () => {
       state.connected = true;
-      const hash = location.hash;
-      if (hash.startsWith('#/room/') && state.room) {
+      if (state.room) {
         send({ type: 'join-room', roomId: state.room.id, playerName: getMyName() });
       }
     };
@@ -1239,12 +1238,15 @@
       case 'room-created':
         state.playerId = msg.playerId;
         state.wasHost = true; // creator is host, don't toast
-        location.hash = `#/room/${msg.roomId}`;
+        history.pushState(null, '', `/${msg.roomId}`);
+        hideModals();
+        showGame();
         break;
       case 'joined':
         state.playerId = msg.playerId;
-        location.hash = `#/room/${msg.roomId}`;
+        history.pushState(null, '', `/${msg.roomId}`);
         hideModals();
+        showGame();
         break;
       case 'room-state': {
         const wasRevealed = state.room?.revealed;
@@ -1274,8 +1276,7 @@
       }
       case 'error': {
         const joinOverlay = document.getElementById('join-overlay');
-        const isOnJoinRoute = location.hash.startsWith('#/join/');
-        if (isOnJoinRoute && !joinOverlay.classList.contains('hidden')) {
+        if (!joinOverlay.classList.contains('hidden')) {
           const errEl = document.getElementById('join-error');
           errEl.textContent = msg.message;
           errEl.style.display = 'block';
@@ -1318,7 +1319,7 @@
   function joinFromLanding() {
     const code = document.getElementById('landing-room-code').value.trim().toLowerCase();
     if (!code) { document.getElementById('landing-room-code').focus(); return; }
-    location.hash = `#/join/${code}`;
+    navigate(`/${code}`);
   }
   function savePlayerName(name) {
     try { localStorage.setItem('pointer-player-name', name); } catch {}
@@ -1535,11 +1536,11 @@
     state.playerId = null;
     state.myVote = null;
     state.wasHost = false;
-    location.hash = '#/';
+    navigate('/');
   }
 
   function copyInviteLink() {
-    const url = `${location.origin}${location.pathname}#/join/${state.room.id}`;
+    const url = `${location.origin}/${state.room.id}`;
     navigator.clipboard.writeText(url).then(() => {
       const btn = document.getElementById('btn-copy-link');
       const orig = btn.textContent;
@@ -1600,36 +1601,40 @@
     if (popover) popover.classList.remove('show');
   });
 
-  // ─── Hash Router + Init ───────────────────────────────────────────────────────
+  // ─── Path Router + Init ───────────────────────────────────────────────────────
+  // Routes: '/' = landing, '/CODE' = a room.
+  function navigate(path) {
+    if (location.pathname !== path) history.pushState(null, '', path);
+    handleRoute();
+  }
+
   function handleRoute() {
-    const hash = location.hash || '#/';
-    if (hash === '#/' || hash === '') {
+    const code = location.pathname.slice(1).toLowerCase();
+    if (!code) {
       showLanding();
-    } else if (hash.startsWith('#/join/')) {
-      const roomId = (hash.split('/')[2] || '').toLowerCase();
-      // Already in this room? Just stay
-      if (state.room && state.room.id === roomId) {
-        location.hash = `#/room/${roomId}`;
-        return;
-      }
-      // In a different room? Confirm before switching
-      if (state.room) {
-        if (!confirm('Leave your current room to join a different one?')) {
-          location.hash = `#/room/${state.room.id}`;
-          return;
-        }
-        send({ type: 'leave-room' });
-        state.room = null;
-        state.playerId = null;
-        state.myVote = null;
-        state.wasHost = false;
-      }
-      showLanding();
-      showJoinModal(roomId);
-    } else if (hash.startsWith('#/room/')) {
+      return;
+    }
+    // Already in this room — just show it.
+    if (state.room && state.room.id === code) {
       showGame();
       hideModals();
+      return;
     }
+    // In a different room — confirm before switching.
+    if (state.room) {
+      if (!confirm('Leave your current room to join a different one?')) {
+        navigate(`/${state.room.id}`);
+        return;
+      }
+      send({ type: 'leave-room' });
+      state.room = null;
+      state.playerId = null;
+      state.myVote = null;
+      state.wasHost = false;
+    }
+    // Not in this room yet — show the landing page with the join modal.
+    showLanding();
+    showJoinModal(code);
   }
 
   // Shuffle landing hero cards
@@ -1643,7 +1648,7 @@
     cards.forEach(c => heroContainer.appendChild(c));
   }
 
-  window.addEventListener('hashchange', handleRoute);
+  window.addEventListener('popstate', handleRoute);
   connect();
   prefillPlayerName();
   handleRoute();
