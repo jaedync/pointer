@@ -675,8 +675,10 @@
   .btn-new-round:hover { border-color: var(--accent); color: var(--accent); }
 
   /* ─── Results: consensus pill ─── */
-  .consensus-pill { opacity: 0; transition: opacity 0.3s; }
-  .consensus-pill.show { opacity: 1; }
+  /* Hidden state is display:none so the pill occupies no layout width while
+     voting — otherwise its stale width pushes #stage-status off-center. */
+  .consensus-pill { display: none; }
+  .consensus-pill.show { display: inline-flex; }
   .cpill {
     display: inline-flex; align-items: center; gap: 12px;
     border-radius: 999px; padding: 8px 14px 8px 22px;
