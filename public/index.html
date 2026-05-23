@@ -1632,7 +1632,11 @@
         const node = container.querySelector(`.stage-card[data-player-id="${CSS.escape(op.player.id)}"]`);
         if (node) {
           updateStageCardNode(node, op.player, revealed, consensus);
-          if (op.subtype === 'place' || op.subtype === 'clear') {
+          // P1/C4 only animate during the active voting phase. At reveal time
+          // the diff sees every player's vote change from the server's 'voted'
+          // sentinel to a real value; we suppress those to let the reveal
+          // cascade own the moment.
+          if (!revealed && (op.subtype === 'place' || op.subtype === 'clear')) {
             playCardAnimation(node, op.subtype);
           }
         }
