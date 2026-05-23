@@ -1642,11 +1642,22 @@
         continue;
       }
       if (op.type === 'unreveal') {
-        for (const card of container.querySelectorAll('.stage-card')) {
+        container.style.setProperty('--flip-duration', '0.45s');
+        const cards = [...container.querySelectorAll('.stage-card')];
+        cards.forEach(card => {
           const pid = card.dataset.playerId;
           const p = state.room.players.find(pp => pp.id === pid);
-          if (p) updateStageCardNode(card, p, revealed, consensus);
-        }
+          if (!p) return;
+          const inner = card.querySelector('.stage-card-inner');
+          if (!inner) return;
+          // Update content with revealed=false so back goes to '—' and match class clears.
+          inner.innerHTML = stageCardInnerHTML(p, false, consensus);
+          inner.style.transitionDelay = '';
+          // Remove .flip on the next frame so the existing inner transitions back to rotateY(0).
+          requestAnimationFrame(() => inner.classList.remove('flip'));
+          playCardAnimation(card, 'clear');
+          card.dataset.suppressNextAnim = '1';
+        });
         continue;
       }
       if (op.type === 'add') {
@@ -1666,9 +1677,11 @@
           // the diff sees every player's vote change from the server's 'voted'
           // sentinel to a real value; we suppress those to let the reveal
           // cascade own the moment.
-          if (!revealed && (op.subtype === 'place' || op.subtype === 'clear')) {
+          const suppressed = node.dataset.suppressNextAnim === '1';
+          if (!revealed && (op.subtype === 'place' || op.subtype === 'clear') && !suppressed) {
             playCardAnimation(node, op.subtype);
           }
+          delete node.dataset.suppressNextAnim;
         }
         continue;
       }
