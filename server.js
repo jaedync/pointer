@@ -12,6 +12,7 @@ const COUNTDOWN_MS = parseInt(process.env.COUNTDOWN_MS || '3000', 10);
 // ─── HTTP ────────────────────────────────────────────────────────────────────
 const MIME_TYPES = {
   '.html': 'text/html',
+  '.js': 'application/javascript',
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
   '.ico': 'image/x-icon',
