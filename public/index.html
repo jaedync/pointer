@@ -1223,6 +1223,7 @@
   </div>
 </div>
 
+<script src="render.js"></script>
 <script>
   // ─── Constants ───────────────────────────────────────────────────────────────
   const VOTING_SYSTEMS = {
@@ -1498,16 +1499,54 @@
     return `<div class="cpill ${stateClass}"><span class="cpill-label">${label}</span>${vals}</div>`;
   }
 
+  let lastStageState = null;
+
+  function stageCardInnerHTML(p, revealed, consensus) {
+    const color = COLORS[p.color];
+    const isWaiting = !p.vote;
+    const displayVote = p.vote || '—';
+    const isMatch = revealed && consensus && consensus.values.includes(String(p.vote));
+    return `
+      <div class="stage-card-front ${isWaiting ? 'sc-waiting' : ''}" style="background:${isWaiting ? '' : color}">
+        <span class="sc-init">${p.name[0].toUpperCase()}</span>
+      </div>
+      <div class="stage-card-back ${isMatch ? 'match' : ''}" style="color:${color}">
+        <div class="sc-inlay"></div>
+        <div class="sc-val-area"><span class="sc-value">${displayVote}</span></div>
+        <div class="sc-name-bar" style="background:${color}"><span class="sc-name" title="${escapeHtml(p.name)}">${escapeHtml(p.name)}</span></div>
+      </div>
+    `;
+  }
+
+  function makeStageCardNode(p, revealed, consensus) {
+    const wrap = document.createElement('div');
+    wrap.className = 'stage-card';
+    wrap.dataset.playerId = p.id;
+    const inner = document.createElement('div');
+    inner.className = 'stage-card-inner';
+    if (revealed) inner.classList.add('flip');
+    inner.innerHTML = stageCardInnerHTML(p, revealed, consensus);
+    wrap.appendChild(inner);
+    return wrap;
+  }
+
+  function updateStageCardNode(node, p, revealed, consensus) {
+    const inner = node.querySelector('.stage-card-inner');
+    if (!inner) return;
+    inner.innerHTML = stageCardInnerHTML(p, revealed, consensus);
+    inner.classList.toggle('flip', !!revealed);
+  }
+
   function renderStage() {
-    const cards = document.getElementById('stage-cards');
-    const status = document.getElementById('stage-status');
-    const action = document.getElementById('stage-action');
-    const pill = document.getElementById('consensus-pill');
+    const cards   = document.getElementById('stage-cards');
+    const status  = document.getElementById('stage-status');
+    const action  = document.getElementById('stage-action');
+    const pill    = document.getElementById('consensus-pill');
     const votedCount = state.room.players.filter(p => p.vote).length;
     const totalCount = state.room.players.length;
-    const me = state.room.players.find(p => p.id === state.playerId);
-    const isHost = me?.isHost;
-    const revealed = state.room.revealed;
+    const me      = state.room.players.find(p => p.id === state.playerId);
+    const isHost  = me?.isHost;
+    const revealed  = state.room.revealed;
     const consensus = state.room.consensus;
 
     // Top zone: voting status while voting, consensus pill once revealed.
@@ -1521,29 +1560,17 @@
       pill.classList.remove('show');
     }
 
-    cards.innerHTML = state.room.players.map((p, i) => {
-      const color = COLORS[p.color];
-      const isWaiting = !p.vote || p.vote === null;
-      const displayVote = revealed ? (p.vote || '—') : '';
-      const flipClass = revealed ? 'flip' : '';
-      const delay = revealed ? `transition-delay: ${i * 0.1}s` : '';
-      const isMatch = revealed && consensus && consensus.values.includes(String(p.vote));
-      return `
-        <div class="stage-card" style="animation-delay:${i * 0.06}s">
-          <div class="stage-card-inner ${flipClass}" style="${delay}">
-            <div class="stage-card-front ${isWaiting && !revealed ? 'sc-waiting' : ''}" style="background:${isWaiting && !revealed ? '' : color}">
-              <span class="sc-init">${p.name[0].toUpperCase()}</span>
-            </div>
-            <div class="stage-card-back ${isMatch ? 'match' : ''}" style="color:${color}">
-              <div class="sc-inlay"></div>
-              <div class="sc-val-area"><span class="sc-value">${displayVote}</span></div>
-              <div class="sc-name-bar" style="background:${color}"><span class="sc-name" title="${escapeHtml(p.name)}">${escapeHtml(p.name)}</span></div>
-            </div>
-          </div>
-        </div>
-      `;
-    }).join('');
+    // Compute diff against last snapshot and apply incrementally.
+    const next = { revealed, players: state.room.players };
+    const prev = lastStageState || { revealed: false, players: [] };
+    const ops  = renderUtils.computeStageDiff(prev, next);
+    applyStageOps(cards, ops, revealed, consensus);
+    // Re-order DOM children to match next.players order (handles new joins,
+    // ensures the visual order always matches the server-truth order).
+    reorderStageChildren(cards, state.room.players);
+    lastStageState = JSON.parse(JSON.stringify(next));
 
+    // Action row (unchanged behavior).
     if (revealed) {
       if (isHost) {
         action.innerHTML = '<button class="btn-new-round" onclick="newRound()">Start New Round</button>';
@@ -1557,6 +1584,43 @@
       } else {
         action.innerHTML = '<span class="stage-hint">Waiting for host to reveal...</span>';
       }
+    }
+  }
+
+  function applyStageOps(container, ops, revealed, consensus) {
+    for (const op of ops) {
+      if (op.type === 'reveal' || op.type === 'unreveal') {
+        // Re-render every card's INNER CONTENT (front + back) so vote values and
+        // match-class are correct. Toggle .flip on the (stable) inner element so
+        // the CSS transition on transform actually fires.
+        for (const card of container.querySelectorAll('.stage-card')) {
+          const pid = card.dataset.playerId;
+          const p = state.room.players.find(pp => pp.id === pid);
+          if (p) updateStageCardNode(card, p, revealed, consensus);
+        }
+        continue;
+      }
+      if (op.type === 'add') {
+        container.appendChild(makeStageCardNode(op.player, revealed, consensus));
+        continue;
+      }
+      if (op.type === 'remove') {
+        const node = container.querySelector(`.stage-card[data-player-id="${CSS.escape(op.playerId)}"]`);
+        if (node) node.remove();
+        continue;
+      }
+      if (op.type === 'update') {
+        const node = container.querySelector(`.stage-card[data-player-id="${CSS.escape(op.player.id)}"]`);
+        if (node) updateStageCardNode(node, op.player, revealed, consensus);
+        continue;
+      }
+    }
+  }
+
+  function reorderStageChildren(container, players) {
+    for (const p of players) {
+      const node = container.querySelector(`.stage-card[data-player-id="${CSS.escape(p.id)}"]`);
+      if (node) container.appendChild(node); // appendChild on existing node moves it to end
     }
   }
 
