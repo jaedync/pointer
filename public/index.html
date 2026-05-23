@@ -569,6 +569,25 @@
     from { opacity: 0; transform: translateY(20px) scale(0.95); }
     to { opacity: 1; transform: translateY(0) scale(1); }
   }
+  .stage-card.is-animating-place {
+    animation: pt-place 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .stage-card.is-animating-clear {
+    animation: pt-clear 0.45s ease-out;
+  }
+  @keyframes pt-place {
+    0%   { transform: rotate(0) translateY(0); }
+    25%  { transform: rotate(-8deg) translateY(-10px); }
+    60%  { transform: rotate(3deg) translateY(2px); }
+    100% { transform: rotate(0) translateY(0); }
+  }
+  @keyframes pt-clear {
+    0%   { transform: rotate(0); }
+    25%  { transform: rotate(-3deg); }
+    50%  { transform: rotate(2deg); }
+    75%  { transform: rotate(-1deg); }
+    100% { transform: rotate(0); }
+  }
 
   .stage-card-inner {
     width: 100%; height: 100%; border-radius: 14px;
@@ -1611,10 +1630,33 @@
       }
       if (op.type === 'update') {
         const node = container.querySelector(`.stage-card[data-player-id="${CSS.escape(op.player.id)}"]`);
-        if (node) updateStageCardNode(node, op.player, revealed, consensus);
+        if (node) {
+          updateStageCardNode(node, op.player, revealed, consensus);
+          if (op.subtype === 'place' || op.subtype === 'clear') {
+            playCardAnimation(node, op.subtype);
+          }
+        }
         continue;
       }
     }
+  }
+
+  function playCardAnimation(node, subtype) {
+    if (!node) return;
+    const cls = subtype === 'place' ? 'is-animating-place'
+              : subtype === 'clear' ? 'is-animating-clear'
+              : null;
+    if (!cls) return;
+    // Remove first to restart if already playing.
+    node.classList.remove('is-animating-place', 'is-animating-clear');
+    void node.offsetWidth; // force reflow so the next class triggers a fresh animation
+    node.classList.add(cls);
+    node.addEventListener('animationend', function handler(e) {
+      if (e.animationName === 'pt-place' || e.animationName === 'pt-clear') {
+        node.classList.remove(cls);
+        node.removeEventListener('animationend', handler);
+      }
+    });
   }
 
   function reorderStageChildren(container, players) {
