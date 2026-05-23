@@ -111,10 +111,18 @@ describe('computeRevealDelays', () => {
     assert.deepEqual(computeRevealDelays(1, 250), [0]);
   });
 
-  it('returns symmetric delays for two players (both at edge)', () => {
-    // center = 0.5, maxDist = 0.5, step = 250/0.5 = 500
-    // |0-0.5|*500 = 250, |1-0.5|*500 = 250
-    assert.deepEqual(computeRevealDelays(2, 250), [250, 250]);
+  it('returns [] for zero players (empty room)', () => {
+    assert.deepEqual(computeRevealDelays(0, 250), []);
+  });
+
+  it('returns [0, 0] for two players (no cascade with equidistant cards)', () => {
+    // Both cards are equally close to the center; there's no actual spread to cascade.
+    // Returning [0, 0] avoids adding dead delay before a near-simultaneous flip.
+    assert.deepEqual(computeRevealDelays(2, 250), [0, 0]);
+  });
+
+  it('returns all zeros when cascadeWindowMs is 0 (instant reveal)', () => {
+    assert.deepEqual(computeRevealDelays(5, 0), [0, 0, 0, 0, 0]);
   });
 
   it('places centermost cards at delay 0 for odd N', () => {

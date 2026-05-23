@@ -49,26 +49,24 @@
   }
 
   function computeRevealDelays(playerCount, cascadeWindowMs) {
-    if (playerCount <= 1) return [0];
+    if (playerCount <= 0) return [];
+    if (playerCount === 1) return [0];
+
     const center = (playerCount - 1) / 2;
-    const dists = new Array(playerCount);
-    let minDist = Infinity;
-    let maxDist = -Infinity;
+    const dists  = new Array(playerCount);
+    let minDist = Infinity, maxDist = -Infinity;
     for (let i = 0; i < playerCount; i++) {
       const d = Math.abs(i - center);
       dists[i] = d;
       if (d < minDist) minDist = d;
       if (d > maxDist) maxDist = d;
     }
-    // Even N has no index sitting at center; normalize so the centermost pair
-    // lands on 0 and the edges land on cascadeWindowMs.
     const range = maxDist - minDist;
+    // Range zero means all cards are equidistant from center (e.g., N=2).
+    // No cascade to spread — reveal them all at 0.
+    if (range === 0) return new Array(playerCount).fill(0);
+
     const out = new Array(playerCount);
-    if (range === 0) {
-      // n=2 (or any all-equal-distance case): both at the edge.
-      for (let i = 0; i < playerCount; i++) out[i] = cascadeWindowMs;
-      return out;
-    }
     for (let i = 0; i < playerCount; i++) {
       out[i] = ((dists[i] - minDist) / range) * cascadeWindowMs;
     }
