@@ -579,15 +579,15 @@
     to { opacity: 1; transform: translateY(0) scale(1); }
   }
   .stage-card.is-animating-place {
-    animation: pt-place 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+    animation: pt-place 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
   }
   .stage-card.is-animating-clear {
     animation: pt-clear 0.45s ease-out;
   }
   @keyframes pt-place {
     0%   { transform: rotate(0) translateY(0); }
-    25%  { transform: rotate(-8deg) translateY(-10px); }
-    60%  { transform: rotate(3deg) translateY(2px); }
+    30%  { transform: rotate(-5deg) translateY(-6px); }
+    65%  { transform: rotate(2deg) translateY(1px); }
     100% { transform: rotate(0) translateY(0); }
   }
   @keyframes pt-clear {
