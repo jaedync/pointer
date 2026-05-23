@@ -600,12 +600,14 @@
     position: relative; z-index: 1;
   }
   .stage-card-front.sc-waiting {
-    background: var(--waiting) !important;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    background: rgba(212,196,184,0.5) !important;
+    box-shadow: none;
   }
-  .stage-card-front.sc-waiting::after { border-color: rgba(255,255,255,0.15); }
+  .stage-card-front.sc-waiting::after { border-color: rgba(255,255,255,0.1); }
   .stage-card-front.sc-waiting .sc-init {
-    color: rgba(255,255,255,0.5); font-size: 24px;
+    color: rgba(181,168,152,0.55);
+    font-size: 22px;
+    font-weight: 700;
   }
   .stage-card-back {
     background: var(--card-face);
@@ -1530,7 +1532,7 @@
         <div class="stage-card" style="animation-delay:${i * 0.06}s">
           <div class="stage-card-inner ${flipClass}" style="${delay}">
             <div class="stage-card-front ${isWaiting && !revealed ? 'sc-waiting' : ''}" style="background:${isWaiting && !revealed ? '' : color}">
-              <span class="sc-init">${isWaiting && !revealed ? '?' : p.name[0].toUpperCase()}</span>
+              <span class="sc-init">${p.name[0].toUpperCase()}</span>
             </div>
             <div class="stage-card-back ${isMatch ? 'match' : ''}" style="color:${color}">
               <div class="sc-inlay"></div>
