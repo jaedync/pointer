@@ -591,7 +591,7 @@
 
   .stage-card-inner {
     width: 100%; height: 100%; border-radius: 14px;
-    transition: transform 0.7s cubic-bezier(0.34, 1.56, 0.64, 1);
+    transition: transform var(--flip-duration, 0.45s) cubic-bezier(0.34, 1.56, 0.64, 1);
     transform-style: preserve-3d; position: relative;
   }
   .stage-card-inner.flip { transform: rotateY(180deg); }
@@ -1608,10 +1608,40 @@
 
   function applyStageOps(container, ops, revealed, consensus) {
     for (const op of ops) {
-      if (op.type === 'reveal' || op.type === 'unreveal') {
-        // Re-render every card's INNER CONTENT (front + back) so vote values and
-        // match-class are correct. Toggle .flip on the (stable) inner element so
-        // the CSS transition on transform actually fires.
+      if (op.type === 'reveal') {
+        const FLIP_MS = 450;
+        const CASCADE_MS = 250;
+        container.style.setProperty('--flip-duration', (FLIP_MS / 1000) + 's');
+        const cards = [...container.querySelectorAll('.stage-card')];
+        const delays = renderUtils.computeRevealDelays(cards.length, CASCADE_MS);
+        // 1. Update each card's INNER CONTENT and consensus match class while .flip is still off
+        //    (back content + match border get updated; transition target is preserved).
+        cards.forEach(card => {
+          const pid = card.dataset.playerId;
+          const p = state.room.players.find(pp => pp.id === pid);
+          if (!p) return;
+          const inner = card.querySelector('.stage-card-inner');
+          if (inner) inner.innerHTML = stageCardInnerHTML(p, true, consensus);
+        });
+        // 2. Apply per-card stagger then add .flip on the next frame so the transition fires.
+        requestAnimationFrame(() => {
+          cards.forEach((card, i) => {
+            const inner = card.querySelector('.stage-card-inner');
+            if (!inner) return;
+            inner.style.transitionDelay = delays[i] + 'ms';
+            inner.classList.add('flip');
+          });
+        });
+        // 3. Clear the transition-delay after the cascade completes so it doesn't leak into later transitions.
+        setTimeout(() => {
+          cards.forEach(card => {
+            const inner = card.querySelector('.stage-card-inner');
+            if (inner) inner.style.transitionDelay = '';
+          });
+        }, FLIP_MS + CASCADE_MS + 50);
+        continue;
+      }
+      if (op.type === 'unreveal') {
         for (const card of container.querySelectorAll('.stage-card')) {
           const pid = card.dataset.playerId;
           const p = state.room.players.find(pp => pp.id === pid);
