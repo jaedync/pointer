@@ -7,8 +7,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "node --test --test-force-exit room.test.js server.test.js",
-    "test:unit": "node --test room.test.js",
+    "test": "node --test --test-force-exit room.test.js render.test.js server.test.js",
+    "test:unit": "node --test room.test.js render.test.js",
     "test:integration": "node --test --test-force-exit server.test.js"
   },
   "dependencies": {
