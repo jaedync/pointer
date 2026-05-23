@@ -516,9 +516,14 @@
 
   /* ─── Stage ─── */
   .stage {
-    display: block;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
     min-height: 360px;
-    padding: 48px 32px; position: relative; overflow: hidden;
+    padding: 80px 32px;
+    position: relative;
+    overflow: hidden;
   }
   .stage-top {
     position: absolute; left: 0; right: 0;
@@ -542,12 +547,11 @@
   .stage-status .count { color: var(--accent); }
 
   .stage-cards {
-    position: absolute; top: 50%; left: 0; right: 0;
-    transform: translateY(-50%);
     display: flex; gap: 16px;
     row-gap: 24px;
     flex-wrap: wrap;
     align-items: flex-end; justify-content: center;
+    width: 100%;
     z-index: 1;
   }
   .stage-card {
