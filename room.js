@@ -43,6 +43,7 @@ function addPlayer(room, name, ws) {
   const player = {
     name: name || 'Player',
     vote: null,
+    voteSeq: 0,
     isHost: room.players.size === 0,
     color: room.players.size === 0 ? 0 : getNextColor(room),
     ws,
@@ -71,6 +72,7 @@ function vote(room, playerId, value) {
   if (!player || room.revealed) return false;
   room.lastActivity = Date.now();
   player.vote = value;
+  player.voteSeq = (player.voteSeq || 0) + 1;
   return true;
 }
 
@@ -79,6 +81,7 @@ function clearVote(room, playerId) {
   if (!player || room.revealed) return false;
   room.lastActivity = Date.now();
   player.vote = null;
+  player.voteSeq = (player.voteSeq || 0) + 1;
   return true;
 }
 
@@ -169,10 +172,26 @@ function serializeRoom(room) {
       id: sid,
       name: p.name,
       vote: room.revealed ? p.vote : (p.vote ? 'voted' : null),
+      voteSeq: p.voteSeq || 0,
       isHost: p.isHost,
       color: p.color,
     })),
   };
+}
+
+// Per-viewer serialization: identical to serializeRoom EXCEPT the viewer's own
+// vote value is shown in plaintext pre-reveal (so the viewer can sync their
+// own state, e.g. re-render their hand-card picked highlight after a page
+// reload). Other players' votes remain masked with the 'voted' sentinel.
+function serializeRoomFor(room, viewerPlayerId) {
+  const payload = serializeRoom(room);
+  if (room.revealed) return payload;
+  const me = payload.players.find(p => p.id === viewerPlayerId);
+  const myActualPlayer = room.players.get(viewerPlayerId);
+  if (me && myActualPlayer) {
+    me.vote = myActualPlayer.vote;
+  }
+  return payload;
 }
 
 module.exports = {
@@ -192,4 +211,5 @@ module.exports = {
   newRound,
   changeColor,
   serializeRoom,
+  serializeRoomFor,
 };

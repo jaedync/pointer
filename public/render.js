@@ -14,7 +14,12 @@
     const isWaiting  = !after.vote;
     if (wasWaiting && !isWaiting) return 'place';
     if (!wasWaiting && isWaiting) return 'clear';
-    if (!wasWaiting && !isWaiting && before.vote !== after.vote) return 'place';
+    // voteSeq is the canonical signal for vote changes: the server hides the
+    // actual value pre-reveal (sends 'voted' sentinel for non-self players),
+    // so vote-A → vote-B is otherwise undetectable from the wire. voteSeq
+    // stays constant across the reveal-time sentinel→real transition, so this
+    // branch does NOT spuriously fire for the reveal.
+    if (!wasWaiting && !isWaiting && (before.voteSeq || 0) !== (after.voteSeq || 0)) return 'place';
     if (!playersEqualForData(before, after)) return 'data';
     return null;
   }

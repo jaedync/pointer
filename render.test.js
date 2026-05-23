@@ -11,6 +11,7 @@ function player(id, overrides = {}) {
     name: id.toUpperCase(),
     color: 0,
     vote: null,
+    voteSeq: 0,
     isHost: false,
     ...overrides,
   };
@@ -39,26 +40,51 @@ describe('computeStageDiff', () => {
   });
 
   it('emits update/place when player goes from waiting to voted', () => {
-    const prev = snapshot({ players: [player('a', { vote: null })] });
-    const next = snapshot({ players: [player('a', { vote: '5' })] });
+    const prev = snapshot({ players: [player('a', { vote: null, voteSeq: 0 })] });
+    const next = snapshot({ players: [player('a', { vote: 'voted', voteSeq: 1 })] });
     assert.deepEqual(computeStageDiff(prev, next), [
-      { type: 'update', subtype: 'place', player: player('a', { vote: '5' }) },
+      { type: 'update', subtype: 'place', player: player('a', { vote: 'voted', voteSeq: 1 }) },
     ]);
   });
 
   it('emits update/clear when player goes from voted to waiting', () => {
-    const prev = snapshot({ players: [player('a', { vote: '5' })] });
-    const next = snapshot({ players: [player('a', { vote: null })] });
+    const prev = snapshot({ players: [player('a', { vote: 'voted', voteSeq: 1 })] });
+    const next = snapshot({ players: [player('a', { vote: null, voteSeq: 2 })] });
     assert.deepEqual(computeStageDiff(prev, next), [
-      { type: 'update', subtype: 'clear', player: player('a', { vote: null }) },
+      { type: 'update', subtype: 'clear', player: player('a', { vote: null, voteSeq: 2 }) },
     ]);
   });
 
-  it('emits update/place when player changes vote (voted A to voted B)', () => {
-    const prev = snapshot({ players: [player('a', { vote: '3' })] });
-    const next = snapshot({ players: [player('a', { vote: '8' })] });
+  it('emits update/place when player changes vote (voteSeq bumps, sentinel stays "voted")', () => {
+    // Pre-reveal the wire carries 'voted' for both sides of a vote change.
+    // voteSeq is what makes the change detectable.
+    const prev = snapshot({ players: [player('a', { vote: 'voted', voteSeq: 1 })] });
+    const next = snapshot({ players: [player('a', { vote: 'voted', voteSeq: 2 })] });
     assert.deepEqual(computeStageDiff(prev, next), [
-      { type: 'update', subtype: 'place', player: player('a', { vote: '8' }) },
+      { type: 'update', subtype: 'place', player: player('a', { vote: 'voted', voteSeq: 2 }) },
+    ]);
+  });
+
+  it('emits update/place for local player whose own vote value changes (per-client unmask)', () => {
+    // The server's per-client serialization gives the LOCAL player their own
+    // actual value rather than the 'voted' sentinel. voteSeq still drives the
+    // change classification.
+    const prev = snapshot({ players: [player('a', { vote: '3', voteSeq: 1 })] });
+    const next = snapshot({ players: [player('a', { vote: '8', voteSeq: 2 })] });
+    assert.deepEqual(computeStageDiff(prev, next), [
+      { type: 'update', subtype: 'place', player: player('a', { vote: '8', voteSeq: 2 }) },
+    ]);
+  });
+
+  it('does NOT emit update/place for the reveal sentinel→real transition (voteSeq unchanged)', () => {
+    // At reveal time, prev.vote === 'voted' and next.vote === '5' for every
+    // voter — but voteSeq is identical (no new vote action). Without this
+    // distinction, every voter card would spuriously fire P1 on top of the
+    // reveal cascade. The reveal op alone owns this moment.
+    const prev = snapshot({ revealed: false, players: [player('a', { vote: 'voted', voteSeq: 1 })] });
+    const next = snapshot({ revealed: true,  players: [player('a', { vote: '5',     voteSeq: 1 })] });
+    assert.deepEqual(computeStageDiff(prev, next), [
+      { type: 'reveal' },
     ]);
   });
 

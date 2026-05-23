@@ -49,9 +49,13 @@ const wss = new WebSocketServer({ server });
 const rooms = new Map();
 
 function broadcastRoom(r) {
-  const msg = JSON.stringify({ type: 'room-state', room: room.serializeRoom(r) });
-  for (const [, player] of r.players) {
-    if (player.ws && player.ws.readyState === 1) player.ws.send(msg);
+  // Per-recipient serialization: each player's payload reveals THEIR OWN vote
+  // value pre-reveal (so the client can sync state.myVote across reloads or
+  // out-of-order events). Other players' votes stay masked with 'voted'.
+  for (const [pid, p] of r.players) {
+    if (!p.ws || p.ws.readyState !== 1) continue;
+    const payload = JSON.stringify({ type: 'room-state', room: room.serializeRoomFor(r, pid) });
+    p.ws.send(payload);
   }
 }
 

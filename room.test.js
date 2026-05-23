@@ -201,6 +201,16 @@ describe('vote', () => {
     vote(room, playerId, '8');
     assert.equal(room.players.get(playerId).vote, '8');
   });
+
+  it('bumps voteSeq on every vote (including changes to the same value)', () => {
+    assert.equal(room.players.get(playerId).voteSeq, 0);
+    vote(room, playerId, '5');
+    assert.equal(room.players.get(playerId).voteSeq, 1);
+    vote(room, playerId, '8');
+    assert.equal(room.players.get(playerId).voteSeq, 2);
+    vote(room, playerId, '8'); // same value, but still a new action
+    assert.equal(room.players.get(playerId).voteSeq, 3);
+  });
 });
 
 describe('clearVote', () => {
@@ -219,6 +229,13 @@ describe('clearVote', () => {
   it('rejects when revealed', () => {
     room.revealed = true;
     assert.equal(clearVote(room, playerId), false);
+  });
+
+  it('bumps voteSeq on clear', () => {
+    // After setup: voteSeq = 1 (from beforeEach vote)
+    assert.equal(room.players.get(playerId).voteSeq, 1);
+    clearVote(room, playerId);
+    assert.equal(room.players.get(playerId).voteSeq, 2);
   });
 });
 
@@ -419,6 +436,56 @@ describe('serializeRoom', () => {
     assert.equal(serialized.revealed, false);
     assert.equal(serialized.roundNumber, 0);
     assert.equal(serialized.consensusCount, 0);
+  });
+
+  it('includes voteSeq on every player', () => {
+    const room = createRoom('Test', 'fib');
+    const { playerId } = addPlayer(room, 'Alice', null);
+    assert.equal(serializeRoom(room).players[0].voteSeq, 0);
+    vote(room, playerId, '5');
+    assert.equal(serializeRoom(room).players[0].voteSeq, 1);
+    vote(room, playerId, '8');
+    assert.equal(serializeRoom(room).players[0].voteSeq, 2);
+  });
+});
+
+describe('serializeRoomFor (per-recipient)', () => {
+  const { serializeRoomFor } = require('./room');
+
+  it('reveals viewer own vote value pre-reveal, hides other players', () => {
+    const room = createRoom('Test', 'fib');
+    const { playerId: alicePid } = addPlayer(room, 'Alice', null);
+    const { playerId: bobPid } = addPlayer(room, 'Bob', null);
+    vote(room, alicePid, '5');
+    vote(room, bobPid, '8');
+
+    const forAlice = serializeRoomFor(room, alicePid);
+    assert.equal(forAlice.players.find(p => p.id === alicePid).vote, '5');
+    assert.equal(forAlice.players.find(p => p.id === bobPid).vote, 'voted');
+
+    const forBob = serializeRoomFor(room, bobPid);
+    assert.equal(forBob.players.find(p => p.id === alicePid).vote, 'voted');
+    assert.equal(forBob.players.find(p => p.id === bobPid).vote, '8');
+  });
+
+  it('post-reveal serializeRoomFor matches serializeRoom (all real values)', () => {
+    const room = createRoom('Test', 'fib');
+    const { playerId: alicePid } = addPlayer(room, 'Alice', null);
+    const { playerId: bobPid } = addPlayer(room, 'Bob', null);
+    vote(room, alicePid, '5');
+    vote(room, bobPid, '8');
+    room.revealed = true;
+
+    const forAlice = serializeRoomFor(room, alicePid);
+    assert.equal(forAlice.players.find(p => p.id === alicePid).vote, '5');
+    assert.equal(forAlice.players.find(p => p.id === bobPid).vote, '8');
+  });
+
+  it('returns null for the viewer slot when they have not voted', () => {
+    const room = createRoom('Test', 'fib');
+    const { playerId } = addPlayer(room, 'Alice', null);
+    const forAlice = serializeRoomFor(room, playerId);
+    assert.equal(forAlice.players[0].vote, null);
   });
 });
 

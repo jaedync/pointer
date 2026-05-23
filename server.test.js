@@ -146,7 +146,11 @@ describe('Server Integration', () => {
       assert.equal(state.room.players.length, 1);
       assert.equal(state.room.players[0].name, 'Alice');
       assert.equal(state.room.players[0].isHost, true);
-      assert.equal(state.room.players[0].vote, 'voted');
+      // Per-client serialization: the broadcast Alice receives includes her
+      // own actual vote value (not the 'voted' sentinel). Other clients in
+      // the room would still see Alice's slot masked as 'voted' pre-reveal.
+      assert.equal(state.room.players[0].vote, '5');
+      assert.equal(state.room.players[0].voteSeq, 1);
 
       await client.close();
     });
