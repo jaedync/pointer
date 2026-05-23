@@ -274,6 +274,7 @@
   .header-right { display: flex; align-items: center; gap: 10px; }
   .btn-invite {
     padding: 6px 14px; border-radius: 7px;
+    min-width: 100px; text-align: center;
     border: 1px solid #5a4a3e; background: transparent;
     color: #c0aa98; font-family: 'Instrument Sans', sans-serif;
     font-size: 12px; font-weight: 600;
@@ -295,6 +296,7 @@
     letter-spacing: 0.1em;
     text-transform: uppercase;
     padding: 6px 14px;
+    min-width: 118px; text-align: center;
     border-radius: 7px;
     border: none;
     background: transparent;
@@ -429,10 +431,15 @@
   .player-vote-indicator {
     width: 28px; height: 38px; border-radius: 6px;
     display: flex; align-items: center; justify-content: center;
-    flex-shrink: 0; transition: all 0.3s;
+    flex-shrink: 0; transition: all 0.3s; position: relative;
   }
   .player-vote-indicator.voted { box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
-  .player-vote-indicator.voted .vi-check { color: #fff; font-size: 14px; font-weight: 700; }
+  /* Voted = a face-down card: player-colour fill with a hairline inset frame,
+     mirroring the stage card front. Reads as "card placed" without a glyph. */
+  .player-vote-indicator.voted::after {
+    content: ''; position: absolute; inset: 4px;
+    border: 1.5px solid rgba(255,255,255,0.45); border-radius: 3px;
+  }
   .player-vote-indicator.waiting {
     background: #f0e8e0; border: 1.5px dashed #d4c8ba;
   }
@@ -514,9 +521,9 @@
     padding: 48px 32px; position: relative; overflow: hidden;
   }
   .stage-top {
-    position: absolute; top: 52px; left: 0; right: 0;
-    display: flex; align-items: center; justify-content: center;
-    min-height: 64px;
+    position: absolute; left: 0; right: 0;
+    bottom: calc(50% + 80px);
+    display: flex; justify-content: center;
   }
   .stage::before {
     content: ''; position: absolute; inset: 0;
@@ -638,9 +645,10 @@
   }
 
   .stage-action {
-    position: absolute; bottom: 52px; left: 0; right: 0;
-    min-height: 52px; z-index: 1;
-    display: flex; align-items: center; justify-content: center;
+    position: absolute; left: 0; right: 0;
+    top: calc(50% + 80px);
+    z-index: 1;
+    display: flex; justify-content: center;
   }
   .btn-reveal {
     padding: 14px 44px; border-radius: 14px; border: none;
@@ -1144,7 +1152,7 @@
      LOBBY MODAL (Create Game)
      Placed after landing + app so it paints on top
      ═══════════════════════════════════════ -->
-<div class="lobby-overlay" id="lobby-overlay">
+<div class="lobby-overlay hidden" id="lobby-overlay">
   <div class="lobby-card">
     <div class="lobby-header">
       <button class="lobby-close" onclick="hideModals()">&times;</button>
@@ -1432,7 +1440,7 @@
       if (state.room.revealed && p.vote) {
         indicator = `<div class="player-vote-indicator revealed-vote"><span class="vi-val">${escapeHtml(String(p.vote))}</span></div>`;
       } else if (p.vote === 'voted') {
-        indicator = `<div class="player-vote-indicator voted" style="background:${color}"><span class="vi-check">✓</span></div>`;
+        indicator = `<div class="player-vote-indicator voted" style="background:${color}"></div>`;
       } else {
         indicator = `<div class="player-vote-indicator waiting"></div>`;
       }
