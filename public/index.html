@@ -522,8 +522,9 @@
   }
   .stage-top {
     position: absolute; left: 0; right: 0;
-    bottom: calc(50% + 80px);
+    top: 32px;
     display: flex; justify-content: center;
+    z-index: 1;
   }
   .stage::before {
     content: ''; position: absolute; inset: 0;
@@ -544,12 +545,15 @@
     position: absolute; top: 50%; left: 0; right: 0;
     transform: translateY(-50%);
     display: flex; gap: 16px;
+    row-gap: 24px;
+    flex-wrap: wrap;
     align-items: flex-end; justify-content: center;
     z-index: 1;
   }
   .stage-card {
     width: 80px; height: 112px;
     perspective: 800px; position: relative;
+    flex-shrink: 0;
     opacity: 0; animation: cardIn 0.4s ease-out forwards;
   }
   .stage-card:nth-child(1) { animation-delay: 0s; }
@@ -646,7 +650,7 @@
 
   .stage-action {
     position: absolute; left: 0; right: 0;
-    top: calc(50% + 80px);
+    bottom: 32px;
     z-index: 1;
     display: flex; justify-content: center;
   }
