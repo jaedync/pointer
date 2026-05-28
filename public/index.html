@@ -247,23 +247,6 @@
     transform: translateY(-2px);
     box-shadow: 0 6px 24px rgba(212,133,106,0.35);
   }
-  .lobby-btn-secondary {
-    width: 100%;
-    padding: 12px;
-    margin-top: 8px;
-    border-radius: 14px;
-    border: 1.5px solid var(--border);
-    background: transparent;
-    color: var(--text-muted);
-    font-family: 'Karla', sans-serif;
-    font-size: 14px; font-weight: 600;
-    cursor: pointer;
-    transition: all 0.15s;
-  }
-  .lobby-btn-secondary:hover {
-    border-color: var(--accent);
-    color: var(--accent);
-  }
 
   /* ═══════════════════════════════════════
      GAME PAGE HEADER
@@ -1264,7 +1247,28 @@
       </div>
       <div id="join-error" style="display:none; padding:10px 14px; border-radius:10px; background:#fdecea; color:#c0392b; font-size:13px; font-weight:500;"></div>
       <button class="lobby-btn" id="btn-join-game" onclick="joinGame()">Join Game</button>
-      <button class="lobby-btn-secondary" id="btn-join-back" style="display:none;" onclick="navigate('/')">Back to home</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════
+     ROOM EXPIRED MODAL
+     Shown when a user lands on a room URL that no longer exists
+     (rooms close after 30 minutes of inactivity).
+     ═══════════════════════════════════════ -->
+<div class="lobby-overlay hidden" id="room-expired-overlay">
+  <div class="lobby-card">
+    <div class="lobby-header">
+      <button class="lobby-close" onclick="navigate('/')">&times;</button>
+      <div class="lobby-logo">Pointer<span class="logo-dot"></span></div>
+      <div class="lobby-subtitle">This room has expired</div>
+    </div>
+    <div class="lobby-body">
+      <p style="font-size:14px; line-height:1.5; color:var(--text-muted); margin:0;">
+        Pointer rooms close after 30 minutes of inactivity, or once everyone has left.
+        Start a fresh game and share the new room code with your team.
+      </p>
+      <button class="lobby-btn" onclick="navigate('/')">Back to home</button>
     </div>
   </div>
 </div>
@@ -1367,14 +1371,18 @@
         break;
       }
       case 'error': {
+        // Room-not-found is the common case (stale URL, timed-out room).
+        // It gets its own modal that explains what happened, rather than a
+        // generic error in the join overlay.
+        if (msg.message === 'Room not found') {
+          showRoomExpiredModal();
+          break;
+        }
         const joinOverlay = document.getElementById('join-overlay');
         if (!joinOverlay.classList.contains('hidden')) {
           const errEl = document.getElementById('join-error');
           errEl.textContent = msg.message;
           errEl.style.display = 'block';
-          // Show an escape hatch — the room URL is dead and the user has no
-          // way out of the modal otherwise.
-          document.getElementById('btn-join-back').style.display = '';
         } else {
           alert(msg.message);
         }
@@ -1404,17 +1412,24 @@
   function showJoinModal(roomId) {
     document.getElementById('join-overlay').classList.remove('hidden');
     document.getElementById('lobby-overlay').classList.add('hidden');
+    document.getElementById('room-expired-overlay').classList.add('hidden');
     document.getElementById('join-overlay').dataset.roomId = roomId;
     document.getElementById('landing').style.pointerEvents = 'none';
-    // Clear any error / escape hatch from a previous attempt.
+    // Clear any error from a previous attempt.
     const errEl = document.getElementById('join-error');
     errEl.style.display = 'none';
     errEl.textContent = '';
-    document.getElementById('btn-join-back').style.display = 'none';
+  }
+  function showRoomExpiredModal() {
+    document.getElementById('room-expired-overlay').classList.remove('hidden');
+    document.getElementById('join-overlay').classList.add('hidden');
+    document.getElementById('lobby-overlay').classList.add('hidden');
+    document.getElementById('landing').style.pointerEvents = 'none';
   }
   function hideModals() {
     document.getElementById('lobby-overlay').classList.add('hidden');
     document.getElementById('join-overlay').classList.add('hidden');
+    document.getElementById('room-expired-overlay').classList.add('hidden');
     document.getElementById('landing').style.pointerEvents = '';
   }
   function joinFromLanding() {
