@@ -86,6 +86,19 @@ wss.on('connection', (ws) => {
         break;
       }
 
+      case 'check-room': {
+        // Existence probe used by the client before showing the name-entry
+        // modal. Lets a stale URL surface the "room expired" modal immediately
+        // instead of after the user types a name and submits.
+        const roomId = typeof msg.roomId === 'string' ? msg.roomId.toLowerCase() : msg.roomId;
+        ws.send(JSON.stringify({
+          type: 'room-check-result',
+          roomId,
+          exists: rooms.has(roomId),
+        }));
+        break;
+      }
+
       case 'join-room': {
         // Room ids are stored lowercase (base36 from Math.random); the UI renders
         // them uppercase via CSS, so accept either casing from clients.

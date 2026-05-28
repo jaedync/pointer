@@ -196,6 +196,51 @@ describe('Server Integration', () => {
     });
   });
 
+  describe('check-room', () => {
+    it('reports exists:false for an unknown room id', async () => {
+      const c = await connect();
+      c.send({ type: 'check-room', roomId: 'zzzzz' });
+      const res = await c.waitFor('room-check-result');
+      assert.equal(res.roomId, 'zzzzz');
+      assert.equal(res.exists, false);
+      await c.close();
+    });
+
+    it('reports exists:true for a live room', async () => {
+      const { client: alice, roomId } = await createRoom('Probe', 'Alice', 'tshirt');
+      const probe = await connect();
+      probe.send({ type: 'check-room', roomId });
+      const res = await probe.waitFor('room-check-result');
+      assert.equal(res.roomId, roomId);
+      assert.equal(res.exists, true);
+      await alice.close();
+      await probe.close();
+    });
+
+    it('accepts uppercase room codes (mirrors join-room casing)', async () => {
+      const { client: alice, roomId } = await createRoom('ProbeCase', 'Alice', 'tshirt');
+      const probe = await connect();
+      probe.send({ type: 'check-room', roomId: roomId.toUpperCase() });
+      const res = await probe.waitFor('room-check-result');
+      assert.equal(res.roomId, roomId); // server normalizes to lowercase
+      assert.equal(res.exists, true);
+      await alice.close();
+      await probe.close();
+    });
+
+    it('does not create a room as a side effect of the probe', async () => {
+      const c = await connect();
+      c.send({ type: 'check-room', roomId: 'nope1' });
+      await c.waitFor('room-check-result');
+      // A second probe must still see exists:false. If the first probe
+      // accidentally instantiated the room, this would flip to true.
+      c.send({ type: 'check-room', roomId: 'nope1' });
+      const res2 = await c.waitFor('room-check-result');
+      assert.equal(res2.exists, false);
+      await c.close();
+    });
+  });
+
   // ─── Voting ────────────────────────────────────────────────────────────
 
   describe('voting', () => {

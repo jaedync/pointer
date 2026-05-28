@@ -1291,6 +1291,10 @@
     room: null,
     myVote: null,
     wasHost: false,
+    // The room id we want to probe before showing any modal. Cleared once the
+    // server's room-check-result lands. Held across reconnects so the probe
+    // survives a transient WS drop during page load.
+    pendingRoomCheck: null,
   };
 
   let ws = null;
@@ -1303,6 +1307,8 @@
       state.connected = true;
       if (state.room) {
         send({ type: 'join-room', roomId: state.room.id, playerName: getMyName() });
+      } else if (state.pendingRoomCheck) {
+        send({ type: 'check-room', roomId: state.pendingRoomCheck });
       }
     };
     ws.onmessage = (e) => handleMessage(JSON.parse(e.data));
@@ -1368,6 +1374,16 @@
           renderCountdown();
           t--;
         }, 1000);
+        break;
+      }
+      case 'room-check-result': {
+        // Only react if this result is for the room we're currently probing.
+        // A late response for a stale check (e.g. user navigated home before
+        // the answer came back) shouldn't pop a modal on the landing page.
+        if (state.pendingRoomCheck !== msg.roomId) break;
+        state.pendingRoomCheck = null;
+        if (msg.exists) showJoinModal(msg.roomId);
+        else            showRoomExpiredModal();
         break;
       }
       case 'error': {
@@ -1877,6 +1893,10 @@
 
   function handleRoute() {
     const code = location.pathname.slice(1).toLowerCase();
+    // Any path change cancels an in-flight room probe. Otherwise a late
+    // room-check-result for a code the user has since navigated away from
+    // could pop a modal on the landing page.
+    state.pendingRoomCheck = null;
     if (!code) {
       showLanding();
       return;
@@ -1899,9 +1919,14 @@
       state.myVote = null;
       state.wasHost = false;
     }
-    // Not in this room yet — show the landing page with the join modal.
+    // Not in this room yet. Probe the server before deciding which modal to
+    // show: stale URLs go straight to the "room expired" modal instead of
+    // asking the user to type a name into a doomed form.
     showLanding();
-    showJoinModal(code);
+    state.pendingRoomCheck = code;
+    send({ type: 'check-room', roomId: code });
+    // If the WS isn't open yet, the onopen handler will fire the check when
+    // it connects (it looks at state.pendingRoomCheck).
   }
 
   // Shuffle landing hero cards
