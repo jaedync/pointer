@@ -48,16 +48,22 @@ function generateToken() {
 
 function sanitizeName(name, fallback) {
   if (typeof name !== 'string') return fallback;
-  const trimmed = name.trim().slice(0, MAX_NAME_LEN);
+  // Cap by Unicode codepoint, not UTF-16 code unit, so truncation can't split an
+  // astral character (emoji) and leave a dangling lone surrogate.
+  const trimmed = Array.from(name.trim()).slice(0, MAX_NAME_LEN).join('');
   return trimmed || fallback;
 }
 
 function createRoom(name, votingSystem, id) {
+  // OWN-property check only: a client-supplied key like 'toString' or
+  // '__proto__' must not resolve to an inherited Object.prototype member, which
+  // would make votingSystem a function and crash vote()'s .includes().
+  const hasSystem = Object.prototype.hasOwnProperty.call(VOTING_SYSTEMS, votingSystem);
   return {
     id: id || generateId(),
     name: sanitizeName(name, 'Planning Poker'),
-    votingSystem: VOTING_SYSTEMS[votingSystem] || VOTING_SYSTEMS.tshirt,
-    votingSystemKey: VOTING_SYSTEMS[votingSystem] ? votingSystem : 'tshirt',
+    votingSystem: hasSystem ? VOTING_SYSTEMS[votingSystem] : VOTING_SYSTEMS.tshirt,
+    votingSystemKey: hasSystem ? votingSystem : 'tshirt',
     players: new Map(),
     revealed: false,
     roundNumber: 0,
@@ -120,7 +126,7 @@ function vote(room, playerId, value) {
   // The value must be one of the room's own card faces. This is the single
   // server-side gate that stops arbitrary strings (XSS payloads, prototype
   // keys like '__proto__') from ever reaching another client's DOM.
-  if (typeof value !== 'string' || !room.votingSystem.includes(value)) return false;
+  if (typeof value !== 'string' || !Array.isArray(room.votingSystem) || !room.votingSystem.includes(value)) return false;
   room.lastActivity = Date.now();
   player.vote = value;
   player.voteSeq = (player.voteSeq || 0) + 1;

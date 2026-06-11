@@ -778,3 +778,35 @@ describe('isRoomExpired', () => {
     assert.equal(isRoomExpired(room, Date.now(), TIMEOUT), false);
   });
 });
+
+// ─── solution-review round 2: hardening the hardening ─────────────────────────
+
+describe('createRoom votingSystem is prototype-safe', () => {
+  const { vote: voteFn, addPlayer: addP } = require('./room');
+  it('falls back to tshirt for an inherited Object.prototype key', () => {
+    for (const key of ['toString', 'constructor', '__proto__', 'hasOwnProperty']) {
+      const room = createRoom('x', key);
+      assert.ok(Array.isArray(room.votingSystem), `votingSystem must be an array for "${key}"`);
+      assert.equal(room.votingSystemKey, 'tshirt');
+    }
+  });
+
+  it('voting in such a room does not throw (votingSystem stays an array)', () => {
+    const room = createRoom('x', 'toString');
+    const { playerId } = addP(room, 'Alice');
+    assert.doesNotThrow(() => voteFn(room, playerId, 'M'));
+  });
+});
+
+describe('sanitizeName is codepoint-safe', () => {
+  const { sanitizeName, MAX_NAME_LEN } = require('./room');
+  it('does not leave a lone surrogate when truncating astral characters', () => {
+    const out = sanitizeName('😀'.repeat(30), 'x'); // 60 UTF-16 units, all astral
+    // No high surrogate that isn't immediately followed by a low surrogate.
+    assert.ok(!/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(out), 'no unpaired high surrogate');
+    assert.ok(Array.from(out).length <= MAX_NAME_LEN);
+  });
+  it('still caps plain ASCII to MAX_NAME_LEN codepoints', () => {
+    assert.equal(Array.from(sanitizeName('a'.repeat(100), 'x')).length, MAX_NAME_LEN);
+  });
+});

@@ -46,7 +46,12 @@ const SECURITY_HEADERS = {
 // strip '..' from a raw request target, so this containment check is required.
 function resolveStaticPath(reqUrl) {
   const reqPath = reqUrl.split('?')[0];
-  const full = path.normalize(path.join(PUBLIC_DIR, decodeURIComponent(reqPath)));
+  let decoded;
+  // decodeURIComponent throws URIError on malformed escapes (e.g. '/%E0%A4%A').
+  // Treat any malformed path as not-resolvable rather than letting the throw
+  // escape the request handler and crash the process.
+  try { decoded = decodeURIComponent(reqPath); } catch { return null; }
+  const full = path.normalize(path.join(PUBLIC_DIR, decoded));
   if (full !== PUBLIC_DIR && !full.startsWith(PUBLIC_DIR + path.sep)) return null;
   return full;
 }
@@ -178,6 +183,21 @@ wss.on('connection', (ws) => {
           return;
         }
 
+        // Fast reconnect: the new socket can arrive BEFORE the old socket's
+        // 'close' has parked the player (the seat is still in players). Take it
+        // over rather than creating a duplicate seat.
+        const live = msg.playerId ? r.players.get(msg.playerId) : null;
+        if (live && live.token && msg.token === live.token) {
+          const oldWs = live.ws;
+          live.ws = ws;
+          if (oldWs && oldWs !== ws) { try { oldWs.close(); } catch {} }
+          currentRoom = r;
+          currentPlayerId = msg.playerId;
+          ws.send(JSON.stringify({ type: 'joined', roomId: r.id, playerId: msg.playerId, token: live.token }));
+          broadcastRoom(r);
+          return;
+        }
+
         const { playerId, token } = room.addPlayer(r, msg.playerName, ws);
         currentRoom = r;
         currentPlayerId = playerId;
@@ -259,7 +279,10 @@ wss.on('connection', (ws) => {
     const r = currentRoom;
     const pid = currentPlayerId;
     const player = r.players.get(pid);
-    if (!player) return;
+    // If a newer socket already took over this seat (fast reconnect), player.ws
+    // points at that socket, not us — this close is for a superseded connection
+    // and must NOT tear the live seat down.
+    if (!player || player.ws !== ws) return;
 
     r.players.delete(pid);
     player.ws = null;
@@ -298,3 +321,4 @@ server.listen(PORT, () => {
 });
 
 module.exports = server;
+module.exports.resolveStaticPath = resolveStaticPath;

@@ -554,6 +554,35 @@ describe('Server Integration', () => {
       assert.ok(!body.includes('WebSocketServer'), 'server source must not leak');
     });
 
+    it('resolveStaticPath returns null on malformed percent-encoding (no throw → no crash)', () => {
+      const { resolveStaticPath } = require('./server');
+      assert.equal(typeof resolveStaticPath, 'function');
+      // decodeURIComponent throws URIError on these; the handler must not crash.
+      for (const bad of ['/%E0%A4%A.js', '/%.css', '/%ZZ.woff2', '/%c0%af.png']) {
+        let val;
+        assert.doesNotThrow(() => { val = resolveStaticPath(bad); }, `threw on ${bad}`);
+        // Either contained-null (escape/garbage) — never an uncaught throw.
+        assert.ok(val === null || typeof val === 'string');
+      }
+    });
+
+    it('survives a live request with a malformed-percent static path', async () => {
+      const net = require('net');
+      const status = await new Promise((resolve, reject) => {
+        const sock = net.connect(port, 'localhost', () => {
+          sock.write('GET /%E0%A4%A.js HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n');
+        });
+        let buf = '';
+        sock.on('data', d => { buf += d.toString(); });
+        sock.on('end', () => resolve(buf.split('\r\n')[0]));
+        sock.on('error', reject);
+      });
+      assert.ok(/40[34]/.test(status), `expected 403/404, got: ${status}`);
+      // Server still alive afterwards.
+      const res = await fetch(`${baseUrl}/`);
+      assert.equal(res.status, 200);
+    });
+
     it('sets hardening + cache headers on a static asset', async () => {
       const res = await fetch(`${baseUrl}/render.js`);
       assert.equal(res.status, 200);
@@ -665,6 +694,35 @@ describe('Server Integration', () => {
       assert.equal(hosts[0].name, 'Bob', 'interim host keeps the role');
       await bob.close();
       await alice2.close();
+    });
+
+    it('fast reconnect (old socket still open) reclaims the seat, no duplicate', async () => {
+      // Reload race: the new socket's join-room can arrive BEFORE the old
+      // socket's close event parks the player. The reconnect must take over the
+      // existing seat instead of adding a second one.
+      const { client: alice, roomId } = await createRoom('Fast', 'Alice', 'tshirt');
+      const { client: bob, playerId: bobId, token: bobToken } = await joinRoom(roomId, 'Bob');
+      await alice.waitFor('room-state');
+
+      // bob is still connected; bob2 reconnects with the same id+token.
+      const bob2 = await connect();
+      bob2.send({ type: 'join-room', roomId, playerName: 'Bob', playerId: bobId, token: bobToken });
+      const joined = await bob2.waitFor('joined');
+      assert.equal(joined.playerId, bobId, 'same stable id (took over the seat)');
+
+      const state = await alice.waitFor('room-state', m => m.room.players.filter(p => p.name === 'Bob').length >= 1);
+      assert.equal(state.room.players.length, 2, 'no duplicate seat — still Alice + Bob');
+      assert.equal(state.room.players.filter(p => p.id === bobId).length, 1);
+
+      // The superseded old socket closing must NOT tear down the live seat.
+      await bob.close();
+      await new Promise(r => setTimeout(r, 50));
+      bob2.send({ type: 'vote', value: 'M' });
+      const after = await alice.waitFor('room-state', m => m.room.players.some(p => p.id === bobId && p.vote === 'voted'));
+      assert.equal(after.room.players.length, 2, 'seat survives the old socket closing');
+
+      await alice.close();
+      await bob2.close();
     });
   });
 });
