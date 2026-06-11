@@ -13,7 +13,7 @@ Real-time planning poker for agile estimation. Create a room, share the link, vo
 - **3-second countdown** — reveal with anticipation
 - **4 voting systems** — T-shirt (XS–XL), Fibonacci, Powers of 2, Simple (1–5)
 - **Host auto-promotion** — if the host disconnects, the next player takes over after 60s
-- **Reconnection window** — 60s to rejoin without losing your seat
+- **Token-based reconnection** — 60s to rejoin your exact seat (id + secret token, not name)
 - **12-color player palette** — deterministic, no duplicates
 - **Persistent names** — remembered across sessions via localStorage
 
@@ -37,7 +37,7 @@ node server.js
 npm test
 ```
 
-88 tests (56 unit + 32 integration), Node's built-in test runner, zero dev dependencies.
+134 tests (101 unit + 33 integration), Node's built-in test runner, zero dev dependencies.
 
 ## License
 
