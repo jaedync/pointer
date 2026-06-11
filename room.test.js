@@ -334,10 +334,10 @@ describe('applyReveal', () => {
     assert.equal(room.consensusCount, 1);
     assert.equal(room.roundNumber, 2);
 
-    // Round 3: consensus again
+    // Round 3: consensus again (fib value — must belong to the room's system)
     newRound(room, hostId);
-    vote(room, hostId, 'M');
-    vote(room, bobId, 'M');
+    vote(room, hostId, '13');
+    vote(room, bobId, '13');
     applyReveal(room);
     assert.equal(room.consensusCount, 2);
     assert.equal(room.roundNumber, 3);
@@ -611,5 +611,143 @@ describe('vote during countdown', () => {
     assert.equal(room.players.get(bob).vote, '8');
 
     clearTimeout(room._countdownTimer);
+  });
+});
+
+// ─── vote validation (audit: XSS-at-source + prototype keys) ──────────────────
+
+describe('vote validation', () => {
+  let room, playerId;
+  beforeEach(() => {
+    room = createRoom('Test', 'fib'); // values: 0,1,2,3,5,8,13,21,?
+    ({ playerId } = addPlayer(room, 'Alice'));
+  });
+
+  it('rejects a value that is not in the room voting system', () => {
+    assert.equal(vote(room, playerId, '<img src=x onerror=alert(1)>'), false);
+    assert.equal(room.players.get(playerId).vote, null);
+  });
+
+  it('rejects the literal "__proto__" as a vote value', () => {
+    assert.equal(vote(room, playerId, '__proto__'), false);
+    assert.equal(room.players.get(playerId).vote, null);
+  });
+
+  it('rejects a non-string vote value', () => {
+    assert.equal(vote(room, playerId, { toString: () => '5' }), false);
+    assert.equal(room.players.get(playerId).vote, null);
+  });
+
+  it('still accepts a legitimate value from the system', () => {
+    assert.equal(vote(room, playerId, '8'), true);
+    assert.equal(room.players.get(playerId).vote, '8');
+  });
+
+  it('still accepts the "?" abstain value', () => {
+    assert.equal(vote(room, playerId, '?'), true);
+  });
+});
+
+// ─── getNextColor avoids colors held by reconnecting players ──────────────────
+
+describe('getNextColor (disconnected players)', () => {
+  it('does not reuse a color held by a player in their reconnect window', () => {
+    const room = createRoom('Test', 'fib');
+    // Player A was color 0, disconnected, and is parked in the reconnect map.
+    room.disconnected.set('idA', { player: { color: 0 }, timeout: null });
+    // A fresh joiner must not steal color 0 out from under the reconnecting A.
+    assert.equal(getNextColor(room), 1);
+  });
+});
+
+// ─── room id generation (audit: crypto entropy + collision avoidance) ─────────
+
+describe('room id generation', () => {
+  const { generateId, generateUniqueId } = require('./room');
+
+  it('produces a 5-char id from an unambiguous alphabet', () => {
+    for (let i = 0; i < 200; i++) {
+      const id = generateId();
+      assert.equal(id.length, 5);
+      // no visually ambiguous chars: 0/o, 1/l/i
+      assert.ok(/^[a-hjkmnp-z2-9]{5}$/.test(id), `unexpected id: ${id}`);
+    }
+  });
+
+  it('skips ids that are already taken', () => {
+    const taken = new Set();
+    let calls = 0;
+    // Force the first two generated ids to read as "taken".
+    const isTaken = (id) => { calls++; return calls <= 2; };
+    const id = generateUniqueId(isTaken);
+    assert.equal(typeof id, 'string');
+    assert.ok(calls >= 3); // looped past the two "taken" ids
+  });
+});
+
+// ─── countdown lifecycle (audit: timer never cancelled / state not synced) ────
+
+describe('countdown lifecycle', () => {
+  const { beginCountdown, cancelCountdown } = require('./room');
+
+  it('beginCountdown records an end time and initiator on the room', () => {
+    const room = createRoom('Test', 'fib');
+    const endsAt = beginCountdown(room, 3000, 'Alice');
+    assert.equal(typeof endsAt, 'number');
+    assert.ok(room.countdownEndsAt > Date.now());
+    assert.equal(room.countdownBy, 'Alice');
+  });
+
+  it('serializeRoom exposes countdownEndsAt and countdownBy', () => {
+    const room = createRoom('Test', 'fib');
+    addPlayer(room, 'Alice');
+    assert.equal(serializeRoom(room).countdownEndsAt, null);
+    beginCountdown(room, 3000, 'Alice');
+    const s = serializeRoom(room);
+    assert.equal(typeof s.countdownEndsAt, 'number');
+    assert.equal(s.countdownBy, 'Alice');
+  });
+
+  it('newRound cancels a pending countdown timer so it cannot force a reveal', async () => {
+    const room = createRoom('Test', 'fib');
+    const { playerId: host } = addPlayer(room, 'Alice');
+    let fired = false;
+    beginCountdown(room, 3000, 'Alice');
+    room._countdownTimer = setTimeout(() => { fired = true; }, 5);
+    assert.equal(newRound(room, host), true);
+    assert.equal(room.countdownEndsAt, null);
+    await new Promise(r => setTimeout(r, 20));
+    assert.equal(fired, false); // the stale timer was cleared
+  });
+
+  it('applyReveal clears the countdown end time', () => {
+    const room = createRoom('Test', 'fib');
+    addPlayer(room, 'Alice');
+    beginCountdown(room, 3000, 'Alice');
+    applyReveal(room);
+    assert.equal(room.countdownEndsAt, null);
+    assert.equal(room.countdownBy, null);
+  });
+
+  it('cancelCountdown resets the countdown fields', () => {
+    const room = createRoom('Test', 'fib');
+    beginCountdown(room, 3000, 'Alice');
+    cancelCountdown(room);
+    assert.equal(room.countdownEndsAt, null);
+    assert.equal(room.countdownBy, null);
+  });
+});
+
+// ─── player token issuance (audit: reconnect identity) ────────────────────────
+
+describe('addPlayer token', () => {
+  it('issues a distinct reconnect token per player', () => {
+    const room = createRoom('Test', 'fib');
+    const a = addPlayer(room, 'Alice');
+    const b = addPlayer(room, 'Bob');
+    assert.equal(typeof a.token, 'string');
+    assert.ok(a.token.length >= 16);
+    assert.notEqual(a.token, b.token);
+    assert.equal(room.players.get(a.playerId).token, a.token);
   });
 });

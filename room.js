@@ -2,6 +2,8 @@
 // Pure room state management, extracted for testability.
 // No WebSocket or HTTP concerns — just data structures and rules.
 
+const crypto = require('crypto');
+
 const VOTING_SYSTEMS = {
   tshirt: ['XS', 'S', 'M', 'L', 'XL', '?'],
   fib: ['0', '1', '2', '3', '5', '8', '13', '21', '?'],
@@ -9,15 +11,51 @@ const VOTING_SYSTEMS = {
   simple: ['1', '2', '3', '4', '5', '?'],
 };
 const NUM_COLORS = 12;
+const MAX_NAME_LEN = 40;
 
+// Room-code alphabet with visually ambiguous characters removed (no 0/o, 1/l/i).
+// Lowercase + digits only so server-side lowercasing and case-insensitive joins
+// stay lossless. 31^5 ≈ 28.6M codes, sampled with a CSPRNG.
+const ID_ALPHABET = 'abcdefghjkmnpqrstuvwxyz23456789';
+const ID_LEN = 5;
+
+// Cryptographically-random room id. Rejection-sampled so each character is an
+// unbiased draw from ID_ALPHABET (modulo bias would slightly favor early chars).
 function generateId() {
-  return Math.random().toString(36).substring(2, 7);
+  let out = '';
+  while (out.length < ID_LEN) {
+    const b = crypto.randomBytes(1)[0];
+    if (b >= 256 - (256 % ID_ALPHABET.length)) continue; // drop the biased tail
+    out += ID_ALPHABET[b % ID_ALPHABET.length];
+  }
+  return out;
 }
 
-function createRoom(name, votingSystem) {
+// Draw a room id that isn't already in use. `isTaken(id) => bool` lets the caller
+// (which owns the rooms map) reject collisions without this module knowing about it.
+function generateUniqueId(isTaken) {
+  let id;
+  do { id = generateId(); } while (isTaken && isTaken(id));
+  return id;
+}
+
+// A secret per-player handle used to prove identity on reconnect. Without it,
+// reconnection was keyed by display name alone — letting any same-named joiner
+// adopt a disconnected player's host role and vote.
+function generateToken() {
+  return crypto.randomBytes(16).toString('hex');
+}
+
+function sanitizeName(name, fallback) {
+  if (typeof name !== 'string') return fallback;
+  const trimmed = name.trim().slice(0, MAX_NAME_LEN);
+  return trimmed || fallback;
+}
+
+function createRoom(name, votingSystem, id) {
   return {
-    id: generateId(),
-    name: name || 'Planning Poker',
+    id: id || generateId(),
+    name: sanitizeName(name, 'Planning Poker'),
     votingSystem: VOTING_SYSTEMS[votingSystem] || VOTING_SYSTEMS.tshirt,
     votingSystemKey: VOTING_SYSTEMS[votingSystem] ? votingSystem : 'tshirt',
     players: new Map(),
@@ -27,11 +65,18 @@ function createRoom(name, votingSystem) {
     disconnected: new Map(),
     lastActivity: Date.now(),
     _countdownTimer: null,
+    countdownEndsAt: null,
+    countdownBy: null,
   };
 }
 
 function getNextColor(room) {
-  const usedColors = new Set([...room.players.values()].map(p => p.color));
+  // Reserve colors held by players who are mid-reconnect too, so a fresh joiner
+  // doesn't collide with someone who is about to come back with that color.
+  const usedColors = new Set([
+    ...[...room.players.values()].map(p => p.color),
+    ...[...room.disconnected.values()].map(d => d.player.color),
+  ]);
   for (let i = 0; i < NUM_COLORS; i++) {
     if (!usedColors.has(i)) return i;
   }
@@ -40,16 +85,18 @@ function getNextColor(room) {
 
 function addPlayer(room, name, ws) {
   const playerId = generateId();
+  const token = generateToken();
   const player = {
-    name: name || 'Player',
+    name: sanitizeName(name, 'Player'),
+    token,
     vote: null,
     voteSeq: 0,
     isHost: room.players.size === 0,
-    color: room.players.size === 0 ? 0 : getNextColor(room),
+    color: getNextColor(room),
     ws,
   };
   room.players.set(playerId, player);
-  return { playerId, player };
+  return { playerId, player, token };
 }
 
 function removePlayer(room, playerId) {
@@ -70,6 +117,10 @@ function promoteHost(room) {
 function vote(room, playerId, value) {
   const player = room.players.get(playerId);
   if (!player || room.revealed) return false;
+  // The value must be one of the room's own card faces. This is the single
+  // server-side gate that stops arbitrary strings (XSS payloads, prototype
+  // keys like '__proto__') from ever reaching another client's DOM.
+  if (typeof value !== 'string' || !room.votingSystem.includes(value)) return false;
   room.lastActivity = Date.now();
   player.vote = value;
   player.voteSeq = (player.voteSeq || 0) + 1;
@@ -93,9 +144,33 @@ function reveal(room, playerId) {
   return { ok: true, initiatedBy: player.name };
 }
 
+// Mark a reveal countdown as running. The actual timer handle lives on the
+// server (it owns setTimeout); this records the shared, serializable state so
+// every client — including ones that join or reconnect mid-countdown — can
+// render the same countdown derived from a wall-clock end time.
+function beginCountdown(room, ms, initiatedBy) {
+  room.countdownEndsAt = Date.now() + ms;
+  room.countdownBy = initiatedBy || null;
+  return room.countdownEndsAt;
+}
+
+// Tear down any pending countdown: clear the server's timer handle and wipe the
+// serializable state so a stale timer can never fire applyReveal on a room that
+// has since moved on (new round, everyone left, etc.).
+function cancelCountdown(room) {
+  if (room._countdownTimer) {
+    clearTimeout(room._countdownTimer);
+    room._countdownTimer = null;
+  }
+  room.countdownEndsAt = null;
+  room.countdownBy = null;
+}
+
 function applyReveal(room) {
   room.revealed = true;
   room._countdownTimer = null;
+  room.countdownEndsAt = null;
+  room.countdownBy = null;
 
   const votes = [...room.players.values()]
     .map(p => p.vote)
@@ -143,6 +218,10 @@ function newRound(room, playerId) {
   const player = room.players.get(playerId);
   if (!player || !player.isHost) return false;
   room.lastActivity = Date.now();
+  // A reveal countdown may still be in flight (host hit reveal, then started a
+  // new round before it elapsed). Cancel it so it can't clobber the fresh round
+  // with a spurious blank reveal.
+  cancelCountdown(room);
   room.revealed = false;
   for (const p of room.players.values()) {
     p.vote = null;
@@ -168,6 +247,11 @@ function serializeRoom(room) {
     roundNumber: room.roundNumber,
     consensusCount: room.consensusCount,
     consensus: room.revealed ? computeConsensus(room) : null,
+    // Countdown is carried in the room state (not a one-shot message) so any
+    // client can derive the remaining time from the shared end timestamp,
+    // including ones that join or reconnect while it is already running.
+    countdownEndsAt: room.countdownEndsAt || null,
+    countdownBy: room.countdownBy || null,
     players: [...room.players.entries()].map(([sid, p]) => ({
       id: sid,
       name: p.name,
@@ -197,7 +281,11 @@ function serializeRoomFor(room, viewerPlayerId) {
 module.exports = {
   VOTING_SYSTEMS,
   NUM_COLORS,
+  MAX_NAME_LEN,
   generateId,
+  generateUniqueId,
+  generateToken,
+  sanitizeName,
   createRoom,
   getNextColor,
   addPlayer,
@@ -207,6 +295,8 @@ module.exports = {
   clearVote,
   reveal,
   applyReveal,
+  beginCountdown,
+  cancelCountdown,
   computeConsensus,
   newRound,
   changeColor,
