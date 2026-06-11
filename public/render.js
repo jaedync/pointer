@@ -53,29 +53,39 @@
     return ops;
   }
 
-  function computeRevealDelays(playerCount, cascadeWindowMs) {
-    if (playerCount <= 0) return [];
-    if (playerCount === 1) return [0];
+  // Cascade delays for the reveal flip. `arg` is either a player COUNT (number,
+  // single-row 1D fallback) or an array of {x,y} card centers. With positions
+  // the cascade radiates from the geometric centroid, so it stays center-out
+  // even when cards wrap onto multiple rows (the count form only spreads along
+  // one axis and looks wrong once wrapped).
+  function computeRevealDelays(arg, cascadeWindowMs) {
+    let dists;
+    if (typeof arg === 'number') {
+      if (arg <= 0) return [];
+      if (arg === 1) return [0];
+      const center = (arg - 1) / 2;
+      dists = [];
+      for (let i = 0; i < arg; i++) dists.push(Math.abs(i - center));
+    } else {
+      const pts = arg || [];
+      if (pts.length <= 0) return [];
+      if (pts.length === 1) return [0];
+      const cx = pts.reduce((s, p) => s + p.x, 0) / pts.length;
+      const cy = pts.reduce((s, p) => s + p.y, 0) / pts.length;
+      dists = pts.map(p => Math.hypot(p.x - cx, p.y - cy));
+    }
 
-    const center = (playerCount - 1) / 2;
-    const dists  = new Array(playerCount);
     let minDist = Infinity, maxDist = -Infinity;
-    for (let i = 0; i < playerCount; i++) {
-      const d = Math.abs(i - center);
-      dists[i] = d;
+    for (const d of dists) {
       if (d < minDist) minDist = d;
       if (d > maxDist) maxDist = d;
     }
     const range = maxDist - minDist;
     // Range zero means all cards are equidistant from center (e.g., N=2).
     // No cascade to spread — reveal them all at 0.
-    if (range === 0) return new Array(playerCount).fill(0);
+    if (range === 0) return new Array(dists.length).fill(0);
 
-    const out = new Array(playerCount);
-    for (let i = 0; i < playerCount; i++) {
-      out[i] = ((dists[i] - minDist) / range) * cascadeWindowMs;
-    }
-    return out;
+    return dists.map(d => ((d - minDist) / range) * cascadeWindowMs);
   }
 
   root.computeStageDiff    = computeStageDiff;

@@ -1288,6 +1288,7 @@
   const state = {
     connected: false,
     playerId: null,
+    token: null,
     room: null,
     myVote: null,
     wasHost: false,
@@ -1300,13 +1301,32 @@
   let ws = null;
   let reconnectTimer = null;
 
+  // Per-room reconnect credentials (stable id + secret token), persisted so a
+  // page reload inside the 60s window can prove identity and reclaim the seat.
+  // sessionStorage is per-tab, which is the right scope for "reconnect after a
+  // refresh/blip" without leaking the seat to other tabs.
+  function saveSession(roomId, playerId, token) {
+    try { sessionStorage.setItem('pointer-session', JSON.stringify({ roomId, playerId, token })); } catch {}
+  }
+  function getSession(roomId) {
+    try {
+      const s = JSON.parse(sessionStorage.getItem('pointer-session') || 'null');
+      return s && s.roomId === roomId ? s : null;
+    } catch { return null; }
+  }
+  function clearSession() {
+    try { sessionStorage.removeItem('pointer-session'); } catch {}
+  }
+
   function connect() {
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
     ws = new WebSocket(`${protocol}//${location.host}`);
     ws.onopen = () => {
       state.connected = true;
       if (state.room) {
-        send({ type: 'join-room', roomId: state.room.id, playerName: getMyName() });
+        // In-memory reconnect after a transient WS drop: we still hold our id
+        // and token, so present them to reclaim the same seat.
+        send({ type: 'join-room', roomId: state.room.id, playerName: getMyName(), playerId: state.playerId, token: state.token });
       } else if (state.pendingRoomCheck) {
         send({ type: 'check-room', roomId: state.pendingRoomCheck });
       }
@@ -1333,6 +1353,8 @@
     switch (msg.type) {
       case 'room-created':
         state.playerId = msg.playerId;
+        state.token = msg.token;
+        saveSession(msg.roomId, msg.playerId, msg.token);
         state.wasHost = true; // creator is host, don't toast
         history.pushState(null, '', `/${msg.roomId}`);
         hideModals();
@@ -1340,6 +1362,8 @@
         break;
       case 'joined':
         state.playerId = msg.playerId;
+        state.token = msg.token;
+        saveSession(msg.roomId, msg.playerId, msg.token);
         history.pushState(null, '', `/${msg.roomId}`);
         hideModals();
         showGame();
@@ -1355,25 +1379,6 @@
         const me = msg.room.players.find(p => p.id === state.playerId);
         if (me) state.myVote = me.vote === 'voted' ? state.myVote : me.vote;
         render();
-        break;
-      }
-      case 'countdown': {
-        state.countdown = msg.seconds;
-        state.countdownBy = msg.initiatedBy;
-        renderCountdown();
-        let t = msg.seconds - 1;
-        const interval = setInterval(() => {
-          if (t <= 0) {
-            clearInterval(interval);
-            state.countdown = null;
-            state.countdownBy = null;
-            renderCountdown();
-            return;
-          }
-          state.countdown = t;
-          renderCountdown();
-          t--;
-        }, 1000);
         break;
       }
       case 'room-check-result': {
@@ -1479,7 +1484,10 @@
     const roomId = document.getElementById('join-overlay').dataset.roomId;
     if (!playerName) { document.getElementById('join-player-name').focus(); return; }
     savePlayerName(playerName);
-    send({ type: 'join-room', roomId, playerName });
+    // If we have a stored session for this room (e.g. just reloaded), present the
+    // id+token so the server restores our seat instead of adding a duplicate.
+    const s = getSession(roomId);
+    send({ type: 'join-room', roomId, playerName, playerId: s && s.playerId, token: s && s.token });
   }
   function updateVotingPreview() {
     const sel = document.getElementById('lobby-voting-system');
@@ -1498,12 +1506,10 @@
     }
     state.wasHost = me?.isHost || false;
 
-    // Clear countdown overlay when reveal arrives
-    if (state.room.revealed) {
-      state.countdown = null;
-      state.countdownBy = null;
-      renderCountdown();
-    }
+    // Countdown is derived from the shared room state (countdownEndsAt), so it
+    // stays correct for clients that join or reconnect mid-countdown and clears
+    // itself the moment the reveal lands.
+    updateCountdown();
     renderHeader();
     renderSidebar();
     renderStage();
@@ -1551,7 +1557,7 @@
       const colorPicker = isMe ? `<div class="color-edit" onclick="toggleColorPicker(event)" title="Change color">●</div><div class="color-picker-popover" id="color-picker-popover">${colorSwatches}</div>` : '';
       return `
         <div class="player-row ${isMe ? 'is-you' : ''}">
-          <div class="player-avatar" style="background:${color}">${p.name[0].toUpperCase()}${colorPicker}</div>
+          <div class="player-avatar" style="background:${color}">${escapeHtml((p.name[0] || '?').toUpperCase())}${colorPicker}</div>
           <div class="player-info">
             <div class="player-name-text">${escapeHtml(p.name)}</div>
             ${roleText ? `<div class="player-role">${roleText}</div>` : ''}
@@ -1592,14 +1598,29 @@
 
   let lastStageState = null;
 
+  // Drop the incremental-render snapshot and clear the stage DOM. Without this,
+  // leaving and re-entering a room diffs the new room against the OLD room's
+  // last snapshot, producing spurious flip-backs and stale cards.
+  function resetStage() {
+    lastStageState = null;
+    const cards = document.getElementById('stage-cards');
+    if (cards) cards.innerHTML = '';
+    stopCountdown();
+  }
+
   function stageCardInnerHTML(p, revealed, consensus) {
     const color = COLORS[p.color];
     const isWaiting = !p.vote;
-    const displayVote = p.vote || '—';
+    // Escape the vote value before it reaches the DOM. The server validates
+    // votes against the room's card set, so this is defense-in-depth, but it is
+    // the sink the audit flagged — never interpolate a player-influenced string
+    // raw into innerHTML.
+    const displayVote = escapeHtml(String(p.vote || '—'));
+    const initial = escapeHtml((p.name[0] || '?').toUpperCase());
     const isMatch = revealed && consensus && consensus.values.includes(String(p.vote));
     return `
       <div class="stage-card-front ${isWaiting ? 'sc-waiting' : ''}" style="background:${isWaiting ? '' : color}">
-        <span class="sc-init">${p.name[0].toUpperCase()}</span>
+        <span class="sc-init">${initial}</span>
       </div>
       <div class="stage-card-back ${isMatch ? 'match' : ''}" style="color:${color}">
         <div class="sc-inlay"></div>
@@ -1687,13 +1708,24 @@
   }
 
   function applyStageOps(container, ops, revealed, consensus) {
+    // Cards refreshed by an 'unreveal' op this batch. The unreveal handler
+    // already swaps their content (revealed=false) and animates the flip-back +
+    // clear; a follow-up 'update'/clear op would synchronously strip .flip and
+    // re-set innerHTML, clobbering that deferred flip-back. Skip those updates.
+    const unrevealed = new Set();
     for (const op of ops) {
       if (op.type === 'reveal') {
         const FLIP_MS = 450;
         const CASCADE_MS = 250;
         container.style.setProperty('--flip-duration', (FLIP_MS / 1000) + 's');
         const cards = [...container.querySelectorAll('.stage-card')];
-        const delays = renderUtils.computeRevealDelays(cards.length, CASCADE_MS);
+        // Measure each card's on-screen center so the cascade radiates from the
+        // true geometric middle even when cards wrap onto multiple rows.
+        const positions = cards.map(c => {
+          const r = c.getBoundingClientRect();
+          return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+        });
+        const delays = renderUtils.computeRevealDelays(positions, CASCADE_MS);
         // 1. Update each card's INNER CONTENT and consensus match class while .flip is still off
         //    (back content + match border get updated; transition target is preserved).
         cards.forEach(card => {
@@ -1737,6 +1769,7 @@
           requestAnimationFrame(() => inner.classList.remove('flip'));
           playCardAnimation(card, 'clear');
           card.dataset.suppressNextAnim = '1';
+          unrevealed.add(pid);
         });
         continue;
       }
@@ -1750,6 +1783,9 @@
         continue;
       }
       if (op.type === 'update') {
+        // The unreveal op above already fully refreshed this card; re-running
+        // updateStageCardNode here would clobber its in-flight flip-back.
+        if (unrevealed.has(op.player.id)) continue;
         const node = container.querySelector(`.stage-card[data-player-id="${CSS.escape(op.player.id)}"]`);
         if (node) {
           updateStageCardNode(node, op.player, revealed, consensus);
@@ -1774,6 +1810,11 @@
               : subtype === 'clear' ? 'is-animating-clear'
               : null;
     if (!cls) return;
+    // If the entrance (cardIn) is still running, drop it now. is-entering sets
+    // opacity:0 and only clears on cardIn's animationend; letting it ride while
+    // pt-place/clear (which animate transform only) play would keep the card
+    // invisible through the whole wiggle and then replay the entrance.
+    node.classList.remove('is-entering');
     // Remove first to restart if already playing.
     node.classList.remove('is-animating-place', 'is-animating-clear');
     void node.offsetWidth; // force reflow so the next class triggers a fresh animation
@@ -1815,10 +1856,13 @@
   function leaveRoom() {
     if (!confirm('Leave this room?')) return;
     send({ type: 'leave-room' });
+    clearSession();
     state.room = null;
     state.playerId = null;
+    state.token = null;
     state.myVote = null;
     state.wasHost = false;
+    resetStage();
     navigate('/');
   }
 
@@ -1844,20 +1888,40 @@
     send({ type: 'change-color', colorIndex });
   }
 
-  function renderCountdown() {
-    let overlay = document.getElementById('countdown-overlay');
-    if (state.countdown) {
+  let countdownInterval = null;
+
+  function stopCountdown() {
+    if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null; }
+    const overlay = document.getElementById('countdown-overlay');
+    if (overlay) overlay.classList.remove('show');
+  }
+
+  // Single source of truth: the room's countdownEndsAt (epoch ms). A lone
+  // interval repaints the remaining whole seconds; it is cleared on reveal, on
+  // expiry, or when the field clears — so overlapping/stale intervals can't
+  // resurrect the overlay over an already-revealed board.
+  function updateCountdown() {
+    const endsAt = (state.room && !state.room.revealed) ? state.room.countdownEndsAt : null;
+    if (!endsAt) { stopCountdown(); return; }
+    const by = state.room.countdownBy || '';
+    const paint = () => {
+      const remaining = Math.max(0, Math.ceil((endsAt - Date.now()) / 1000));
+      let overlay = document.getElementById('countdown-overlay');
       if (!overlay) {
         overlay = document.createElement('div');
         overlay.id = 'countdown-overlay';
         overlay.className = 'countdown-overlay';
         document.querySelector('.stage').appendChild(overlay);
       }
-      overlay.innerHTML = `<div class="countdown-number">${state.countdown}</div><div class="countdown-label">${escapeHtml(state.countdownBy)} is revealing...</div>`;
+      overlay.innerHTML = `<div class="countdown-number">${remaining}</div><div class="countdown-label">${escapeHtml(by)} is revealing...</div>`;
       overlay.classList.add('show');
-    } else if (overlay) {
-      overlay.classList.remove('show');
-    }
+      if (endsAt - Date.now() <= 0 && countdownInterval) {
+        clearInterval(countdownInterval);
+        countdownInterval = null;
+      }
+    };
+    paint();
+    if (!countdownInterval) countdownInterval = setInterval(paint, 200);
   }
 
   function showToast(message) {
@@ -1898,6 +1962,19 @@
     // could pop a modal on the landing page.
     state.pendingRoomCheck = null;
     if (!code) {
+      // Landing reached (e.g. browser Back). If we were in a room, actually
+      // leave it — otherwise we stay a member, the old room leaks, and its
+      // broadcasts flip-flop the UI against whatever we navigate to next.
+      if (state.room) {
+        send({ type: 'leave-room' });
+        clearSession();
+        state.room = null;
+        state.playerId = null;
+        state.token = null;
+        state.myVote = null;
+        state.wasHost = false;
+        resetStage();
+      }
       showLanding();
       return;
     }
@@ -1914,10 +1991,13 @@
         return;
       }
       send({ type: 'leave-room' });
+      clearSession();
       state.room = null;
       state.playerId = null;
+      state.token = null;
       state.myVote = null;
       state.wasHost = false;
+      resetStage();
     }
     // Not in this room yet. Probe the server before deciding which modal to
     // show: stale URLs go straight to the "room expired" modal instead of

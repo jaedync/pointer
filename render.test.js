@@ -175,3 +175,28 @@ describe('computeRevealDelays', () => {
     }
   });
 });
+
+// ─── computeRevealDelays: radial (center-out) ordering for wrapped layouts ────
+
+describe('computeRevealDelays (2D positions)', () => {
+  it('orders by distance from the centroid, not by flat index, when cards wrap', () => {
+    // 3 cards on row 1, 2 on row 2. The geometric center sits nearest index 1,
+    // whereas the old flat-index math would pick index 2 (middle of the array).
+    const positions = [
+      { x: 0,   y: 0 },   // 0
+      { x: 100, y: 0 },   // 1  <- closest to centroid
+      { x: 200, y: 0 },   // 2
+      { x: 0,   y: 112 }, // 3
+      { x: 100, y: 112 }, // 4
+    ];
+    const delays = computeRevealDelays(positions, 250);
+    const min = Math.min(...delays);
+    assert.equal(delays[1], min, 'card nearest the center reveals first');
+    assert.equal(delays.indexOf(Math.max(...delays)), 2, 'farthest card reveals last');
+    assert.ok(delays.every(d => d >= 0 && d <= 250));
+  });
+
+  it('still supports the numeric (single-row) form', () => {
+    assert.deepEqual(computeRevealDelays(3, 250), [250, 0, 250]);
+  });
+});
