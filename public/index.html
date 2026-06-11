@@ -1292,6 +1292,9 @@
     room: null,
     myVote: null,
     wasHost: false,
+    // serverTime(received) - clientNow(received); add to a local clock reading to
+    // estimate the server's clock. Keeps the countdown correct under clock skew.
+    serverClockOffset: 0,
     // The room id we want to probe before showing any modal. Cleared once the
     // server's room-check-result lands. Held across reconnects so the probe
     // survives a transient WS drop during page load.
@@ -1369,6 +1372,7 @@
         showGame();
         break;
       case 'room-state': {
+        if (typeof msg.serverTime === 'number') state.serverClockOffset = msg.serverTime - Date.now();
         const wasRevealed = state.room?.revealed;
         state.room = msg.room;
         if (wasRevealed && !msg.room.revealed) state.myVote = null;
@@ -1925,12 +1929,20 @@
   // interval repaints the remaining whole seconds; it is cleared on reveal, on
   // expiry, or when the field clears — so overlapping/stale intervals can't
   // resurrect the overlay over an already-revealed board.
+  // Estimate the server's clock from the last room-state's serverTime. The
+  // countdown end time is in SERVER time, so comparing it against this (not the
+  // raw local clock) keeps the displayed seconds correct under clock skew.
+  function serverNow() { return Date.now() + (state.serverClockOffset || 0); }
+
   function updateCountdown() {
     const endsAt = (state.room && !state.room.revealed) ? state.room.countdownEndsAt : null;
     if (!endsAt) { stopCountdown(); return; }
     const by = state.room.countdownBy || '';
     const paint = () => {
-      const remaining = Math.max(0, Math.ceil((endsAt - Date.now()) / 1000));
+      const remainingMs = endsAt - serverNow();
+      // Clamp display to >=1: never flash "0", and hold the last frame until the
+      // reveal room-state arrives and clears the overlay (cascade takes over).
+      const remaining = Math.max(1, Math.ceil(remainingMs / 1000));
       let overlay = document.getElementById('countdown-overlay');
       if (!overlay) {
         overlay = document.createElement('div');
@@ -1940,7 +1952,8 @@
       }
       overlay.innerHTML = `<div class="countdown-number">${remaining}</div><div class="countdown-label">${escapeHtml(by)} is revealing...</div>`;
       overlay.classList.add('show');
-      if (endsAt - Date.now() <= 0 && countdownInterval) {
+      if (remainingMs <= 0 && countdownInterval) {
+        // Stop ticking but keep the overlay; the imminent reveal clears it.
         clearInterval(countdownInterval);
         countdownInterval = null;
       }

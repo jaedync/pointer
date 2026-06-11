@@ -591,16 +591,19 @@ describe('Server Integration', () => {
       assert.ok(/max-age=\d+/.test(res.headers.get('cache-control') || ''), 'cache-control present');
     });
 
-    it('does not crash on an oversized frame', async () => {
+    it('enforces the 64KB frame cap by closing the offending socket, server survives', async () => {
       const c = await connect();
-      const huge = 'x'.repeat(300 * 1024);
+      const closed = new Promise(res => c.ws.on('close', (code) => res(code)));
+      const huge = 'x'.repeat(300 * 1024); // > maxPayload (64KB)
       try { c.ws.send(JSON.stringify({ type: 'create-room', name: huge, playerName: 'A' })); } catch {}
+      // ws closes an over-limit connection with 1009 (message too big).
+      const code = await Promise.race([closed, new Promise(r => setTimeout(() => r('timeout'), 2000))]);
+      assert.equal(code, 1009, `expected close code 1009, got ${code}`);
       // A second client must still be able to use the server.
       const c2 = await connect();
       c2.send({ type: 'create-room', name: 'T', playerName: 'A', votingSystem: 'tshirt' });
       const msg = await c2.waitFor('room-created');
       assert.ok(msg.roomId);
-      await c.close();
       await c2.close();
     });
   });

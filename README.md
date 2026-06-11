@@ -34,10 +34,14 @@ node server.js
 ## Testing
 
 ```bash
-npm test
+npm test          # 141 unit + integration tests, Node's built-in runner, no deps
+npm run test:e2e  # browser end-to-end (requires playwright)
 ```
 
-134 tests (101 unit + 33 integration), Node's built-in test runner, zero dev dependencies.
+`npm test` (105 unit + 36 integration) needs zero runtime dependencies. The optional
+browser E2E in `e2e/verify.cjs` drives two real clients through
+create/join/vote/reveal/new-round/reconnect/back and needs the one dev
+dependency (`playwright` + `npx playwright install chromium`).
 
 ## License
 

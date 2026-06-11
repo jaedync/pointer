@@ -9,9 +9,13 @@
     "dev": "node --watch server.js",
     "test": "node --test --test-force-exit room.test.js render.test.js server.test.js",
     "test:unit": "node --test room.test.js render.test.js",
-    "test:integration": "node --test --test-force-exit server.test.js"
+    "test:integration": "node --test --test-force-exit server.test.js",
+    "test:e2e": "node e2e/verify.cjs"
   },
   "dependencies": {
     "ws": "^8.19.0"
+  },
+  "devDependencies": {
+    "playwright": "^1.58.0"
   }
 }
