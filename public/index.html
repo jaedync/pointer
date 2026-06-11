@@ -1356,7 +1356,7 @@
         state.token = msg.token;
         saveSession(msg.roomId, msg.playerId, msg.token);
         state.wasHost = true; // creator is host, don't toast
-        history.pushState(null, '', `/${msg.roomId}`);
+        routeToRoom(msg.roomId);
         hideModals();
         showGame();
         break;
@@ -1364,7 +1364,7 @@
         state.playerId = msg.playerId;
         state.token = msg.token;
         saveSession(msg.roomId, msg.playerId, msg.token);
-        history.pushState(null, '', `/${msg.roomId}`);
+        routeToRoom(msg.roomId);
         hideModals();
         showGame();
         break;
@@ -1387,8 +1387,21 @@
         // the answer came back) shouldn't pop a modal on the landing page.
         if (state.pendingRoomCheck !== msg.roomId) break;
         state.pendingRoomCheck = null;
-        if (msg.exists) showJoinModal(msg.roomId);
-        else            showRoomExpiredModal();
+        if (msg.exists) {
+          // If we hold reconnect credentials for this room (e.g. just reloaded
+          // the page), reclaim the seat directly with the token instead of
+          // making the user re-type their name. A bad/expired token simply
+          // falls through to a fresh join on the server.
+          const session = getSession(msg.roomId);
+          if (session) {
+            send({ type: 'join-room', roomId: msg.roomId, playerName: getSavedPlayerName() || 'Player', playerId: session.playerId, token: session.token });
+          } else {
+            showJoinModal(msg.roomId);
+          }
+        } else {
+          clearSession(); // stale credentials for a room that no longer exists
+          showRoomExpiredModal();
+        }
         break;
       }
       case 'error': {
@@ -1409,6 +1422,18 @@
         }
         break;
       }
+    }
+  }
+
+  // Put the room path in the address bar without stacking a duplicate history
+  // entry. When the user navigated to /CODE first (join-by-URL), replace it so a
+  // single Back press still returns to wherever they came from (landing).
+  function routeToRoom(roomId) {
+    const target = `/${roomId}`;
+    if (location.pathname.toLowerCase() !== target.toLowerCase()) {
+      history.pushState(null, '', target);
+    } else {
+      history.replaceState(null, '', target);
     }
   }
 
