@@ -229,6 +229,16 @@ function newRound(room, playerId) {
   return true;
 }
 
+// GC predicate. A room is collectable only when it has been idle past the
+// timeout AND has nobody connected AND nobody parked in the reconnect window —
+// otherwise a long-idle discussion where everyone briefly drops would be
+// destroyed out from under players still inside their 60s reconnect grace.
+function isRoomExpired(room, now, timeoutMs) {
+  return (now - room.lastActivity > timeoutMs)
+    && room.players.size === 0
+    && room.disconnected.size === 0;
+}
+
 function changeColor(room, playerId, colorIndex) {
   const player = room.players.get(playerId);
   if (!player) return false;
@@ -298,6 +308,7 @@ module.exports = {
   beginCountdown,
   cancelCountdown,
   computeConsensus,
+  isRoomExpired,
   newRound,
   changeColor,
   serializeRoom,

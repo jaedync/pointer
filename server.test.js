@@ -103,16 +103,16 @@ async function createRoom(name, playerName, votingSystem) {
   c.send({ type: 'create-room', name, playerName, votingSystem });
   const created = await c.waitFor('room-created');
   await c.waitFor('room-state'); // drain initial broadcast
-  return { client: c, roomId: created.roomId, playerId: created.playerId };
+  return { client: c, roomId: created.roomId, playerId: created.playerId, token: created.token };
 }
 
-// Helper: join a room and return { client, playerId }
+// Helper: join a room and return { client, playerId, token }
 async function joinRoom(roomId, playerName) {
   const c = await connect();
   c.send({ type: 'join-room', roomId, playerName });
   const joined = await c.waitFor('joined');
   await c.waitFor('room-state'); // drain initial broadcast
-  return { client: c, playerId: joined.playerId };
+  return { client: c, playerId: joined.playerId, token: joined.token };
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
@@ -284,14 +284,13 @@ describe('Server Integration', () => {
       await bob.waitFor('room-state');
 
       alice.send({ type: 'reveal' });
-      // With COUNTDOWN_MS=0, countdown and reveal come back-to-back
-      await bob.waitFor('room-state'); // revealed state
+      await bob.waitFor('room-state', m => m.room.revealed === true); // revealed state
 
       // Try voting after reveal — should be ignored
       bob.send({ type: 'vote', value: 'XL' });
       // New round to get a clean state
       alice.send({ type: 'new-round' });
-      const state = await bob.waitFor('room-state');
+      const state = await bob.waitFor('room-state', m => m.room.revealed === false && m.room.roundNumber === 1);
       const b = state.room.players.find(p => p.name === 'Bob');
       assert.equal(b.vote, null);
 
@@ -303,7 +302,7 @@ describe('Server Integration', () => {
   // ─── Reveal + Countdown ────────────────────────────────────────────────
 
   describe('reveal', () => {
-    it('sends countdown then reveals', async () => {
+    it('announces a countdown via room-state, then reveals', async () => {
       const { client: alice, roomId } = await createRoom('Reveal', 'Alice', 'tshirt');
       const { client: bob } = await joinRoom(roomId, 'Bob');
       await alice.waitFor('room-state');
@@ -315,9 +314,9 @@ describe('Server Integration', () => {
 
       alice.send({ type: 'reveal' });
 
-      const countdown = await bob.waitFor('countdown');
-      assert.equal(countdown.initiatedBy, 'Alice');
-      assert.equal(countdown.seconds, 3);
+      const counting = await bob.waitFor('room-state', m => m.room.countdownEndsAt != null);
+      assert.equal(counting.room.countdownBy, 'Alice');
+      assert.equal(counting.room.revealed, false);
 
       const revealed = await bob.waitFor('room-state', m => m.room.revealed === true);
       assert.equal(revealed.room.revealed, true);
@@ -375,11 +374,10 @@ describe('Server Integration', () => {
       alice.send({ type: 'vote', value: 'M' });
       await bob.waitFor('room-state');
       alice.send({ type: 'reveal' });
-      await bob.waitFor('room-state'); // revealed
+      await bob.waitFor('room-state', m => m.room.revealed === true); // revealed
 
       alice.send({ type: 'new-round' });
-      const state = await bob.waitFor('room-state');
-      assert.equal(state.room.revealed, false);
+      const state = await bob.waitFor('room-state', m => m.room.revealed === false && m.room.roundNumber === 1);
       for (const p of state.room.players) {
         assert.equal(p.vote, null);
       }
@@ -394,13 +392,13 @@ describe('Server Integration', () => {
       await alice.waitFor('room-state');
 
       alice.send({ type: 'reveal' });
-      await bob.waitFor('room-state'); // revealed
+      await bob.waitFor('room-state', m => m.room.revealed === true); // revealed
 
       // Bob tries new round — should be ignored
       bob.send({ type: 'new-round' });
       // Do a valid new-round from Alice
       alice.send({ type: 'new-round' });
-      const state = await bob.waitFor('room-state');
+      const state = await bob.waitFor('room-state', m => m.room.revealed === false);
       assert.equal(state.room.revealed, false);
 
       await alice.close();
@@ -472,22 +470,24 @@ describe('Server Integration', () => {
       await alice.close();
     });
 
-    it('reconnecting player restores vote', async () => {
+    it('reconnecting player (with token) restores vote, seen as "voted" by others', async () => {
       const { client: alice, roomId } = await createRoom('Reconn', 'Alice', 'tshirt');
-      const { client: bob } = await joinRoom(roomId, 'Bob');
+      const { client: bob, playerId: bobId, token: bobToken } = await joinRoom(roomId, 'Bob');
       await alice.waitFor('room-state');
 
       bob.send({ type: 'vote', value: 'L' });
       await alice.waitFor('room-state');
 
       await bob.close();
-      await alice.waitFor('room-state'); // Bob removed
+      await alice.waitFor('room-state'); // Bob parked
 
-      // Reconnect with same name
-      const { client: bob2 } = await joinRoom(roomId, 'Bob');
-      const state = await alice.waitFor('room-state');
-      const bobState = state.room.players.find(p => p.name === 'Bob');
-      assert.equal(bobState.vote, 'voted'); // preserved from before
+      // Reconnect with the stable id + secret token.
+      const bob2 = await connect();
+      bob2.send({ type: 'join-room', roomId, playerName: 'Bob', playerId: bobId, token: bobToken });
+      await bob2.waitFor('joined');
+      const state = await alice.waitFor('room-state', m => m.room.players.some(p => p.id === bobId));
+      const bobState = state.room.players.find(p => p.id === bobId);
+      assert.equal(bobState.vote, 'voted'); // preserved from before, masked to Alice
 
       await alice.close();
       await bob2.close();
@@ -514,6 +514,157 @@ describe('Server Integration', () => {
       const msg = await c.waitFor('room-created');
       assert.ok(msg.roomId);
       await c.close();
+    });
+
+    it('survives a frame that parses to a non-object (null / number / string)', async () => {
+      const c = await connect();
+      // JSON.parse('null') succeeds and returns null; the old code then read
+      // msg.type off null and crashed the whole process.
+      c.ws.send('null');
+      c.ws.send('42');
+      c.ws.send('"hello"');
+      c.ws.send('[1,2,3]');
+      c.ws.send(JSON.stringify({ noTypeField: true }));
+      // Server must still be alive and serving.
+      c.send({ type: 'create-room', name: 'T', playerName: 'A', votingSystem: 'tshirt' });
+      const msg = await c.waitFor('room-created');
+      assert.ok(msg.roomId);
+      await c.close();
+    });
+  });
+
+  // ─── Security / robustness hardening (pre-push audit) ──────────────────────
+
+  describe('static file serving', () => {
+    it('does not serve files outside public/ via path traversal', async () => {
+      // Raw socket so the literal "/../server.js" target reaches the server
+      // un-normalized (fetch/browsers would collapse the .. client-side).
+      const net = require('net');
+      const body = await new Promise((resolve, reject) => {
+        const sock = net.connect(port, 'localhost', () => {
+          sock.write('GET /../server.js HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n');
+        });
+        let buf = '';
+        sock.on('data', d => { buf += d.toString(); });
+        sock.on('end', () => resolve(buf));
+        sock.on('error', reject);
+      });
+      const statusLine = body.split('\r\n')[0];
+      assert.ok(!statusLine.includes('200'), `expected non-200, got: ${statusLine}`);
+      assert.ok(!body.includes('WebSocketServer'), 'server source must not leak');
+    });
+
+    it('sets hardening + cache headers on a static asset', async () => {
+      const res = await fetch(`${baseUrl}/render.js`);
+      assert.equal(res.status, 200);
+      assert.equal(res.headers.get('x-content-type-options'), 'nosniff');
+      assert.ok(res.headers.get('content-security-policy'), 'CSP header present');
+      assert.ok(/max-age=\d+/.test(res.headers.get('cache-control') || ''), 'cache-control present');
+    });
+
+    it('does not crash on an oversized frame', async () => {
+      const c = await connect();
+      const huge = 'x'.repeat(300 * 1024);
+      try { c.ws.send(JSON.stringify({ type: 'create-room', name: huge, playerName: 'A' })); } catch {}
+      // A second client must still be able to use the server.
+      const c2 = await connect();
+      c2.send({ type: 'create-room', name: 'T', playerName: 'A', votingSystem: 'tshirt' });
+      const msg = await c2.waitFor('room-created');
+      assert.ok(msg.roomId);
+      await c.close();
+      await c2.close();
+    });
+  });
+
+  describe('reveal countdown (room-state carried)', () => {
+    it('broadcasts countdownEndsAt before the reveal lands', async () => {
+      const { client: alice, roomId } = await createRoom('CD', 'Alice', 'tshirt');
+      alice.send({ type: 'vote', value: 'M' });
+      await alice.waitFor('room-state');
+      alice.send({ type: 'reveal' });
+      const counting = await alice.waitFor('room-state', m => m.room.countdownEndsAt != null);
+      assert.equal(counting.room.revealed, false);
+      assert.equal(typeof counting.room.countdownEndsAt, 'number');
+      assert.equal(counting.room.countdownBy, 'Alice');
+      const revealed = await alice.waitFor('room-state', m => m.room.revealed === true);
+      assert.equal(revealed.room.countdownEndsAt, null);
+      await alice.close();
+    });
+  });
+
+  describe('reconnection identity (token-based)', () => {
+    it('create-room and join-room hand back a reconnect token', async () => {
+      const { client: alice, roomId, token: aliceToken } = await createRoom('Tok', 'Alice', 'tshirt');
+      assert.equal(typeof aliceToken, 'string');
+      const { client: bob, token: bobToken } = await joinRoom(roomId, 'Bob');
+      assert.equal(typeof bobToken, 'string');
+      assert.notEqual(aliceToken, bobToken);
+      await alice.close();
+      await bob.close();
+    });
+
+    it('a same-named joiner WITHOUT the token does not adopt the disconnected player', async () => {
+      const { client: alice, roomId } = await createRoom('Hijack', 'Alice', 'tshirt');
+      const { client: bob, playerId: bobId } = await joinRoom(roomId, 'Bob');
+      await alice.waitFor('room-state');
+      alice.send({ type: 'vote', value: 'L' });
+      await bob.waitFor('room-state');
+
+      await alice.close(); // Alice (host) drops; Bob should be promoted
+      await bob.waitFor('room-state');
+
+      // A stranger shows up claiming the name "Alice" but with no token.
+      const stranger = await connect();
+      stranger.send({ type: 'join-room', roomId, playerName: 'Alice' });
+      const joined = await stranger.waitFor('joined');
+      const state = await stranger.waitFor('room-state');
+      const me = state.room.players.find(p => p.id === joined.playerId);
+      assert.equal(me.isHost, false, 'stranger must NOT inherit host');
+      assert.equal(me.vote, null, 'stranger must NOT inherit the vote');
+      const bobP = state.room.players.find(p => p.name === 'Bob');
+      assert.equal(bobP.isHost, true, 'Bob stays host');
+      await bob.close();
+      await stranger.close();
+    });
+
+    it('reconnecting with the correct playerId+token restores identity and vote', async () => {
+      const { client: alice, roomId } = await createRoom('Reconn', 'Alice', 'tshirt');
+      const { client: bob, playerId: bobId, token: bobToken } = await joinRoom(roomId, 'Bob');
+      await alice.waitFor('room-state');
+      bob.send({ type: 'vote', value: 'L' });
+      await alice.waitFor('room-state');
+
+      await bob.close();
+      await alice.waitFor('room-state'); // Bob parked
+
+      const bob2 = await connect();
+      bob2.send({ type: 'join-room', roomId, playerName: 'Bob', playerId: bobId, token: bobToken });
+      const joined = await bob2.waitFor('joined');
+      assert.equal(joined.playerId, bobId, 'same stable id on reconnect');
+      const state = await bob2.waitFor('room-state', m => m.room.players.some(p => p.id === bobId));
+      const bobP = state.room.players.find(p => p.id === bobId);
+      assert.equal(bobP.vote, 'L'); // own vote restored to self
+      await alice.close();
+      await bob2.close();
+    });
+
+    it('the original host reconnecting does not create a second host', async () => {
+      const { client: alice, roomId, playerId: aliceId, token: aliceToken } = await createRoom('TwoHost', 'Alice', 'tshirt');
+      const { client: bob } = await joinRoom(roomId, 'Bob');
+      await alice.waitFor('room-state');
+
+      await alice.close(); // host drops → Bob promoted
+      await bob.waitFor('room-state', m => m.room.players.length === 1);
+
+      const alice2 = await connect();
+      alice2.send({ type: 'join-room', roomId, playerName: 'Alice', playerId: aliceId, token: aliceToken });
+      await alice2.waitFor('joined');
+      const state = await alice2.waitFor('room-state', m => m.room.players.length === 2);
+      const hosts = state.room.players.filter(p => p.isHost);
+      assert.equal(hosts.length, 1, 'exactly one host after host reconnect');
+      assert.equal(hosts[0].name, 'Bob', 'interim host keeps the role');
+      await bob.close();
+      await alice2.close();
     });
   });
 });

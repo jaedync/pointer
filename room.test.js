@@ -751,3 +751,30 @@ describe('addPlayer token', () => {
     assert.equal(room.players.get(a.playerId).token, a.token);
   });
 });
+
+// ─── room expiry predicate (audit: GC ignored reconnect window) ───────────────
+
+describe('isRoomExpired', () => {
+  const { isRoomExpired } = require('./room');
+  const TIMEOUT = 30 * 60 * 1000;
+
+  it('expires an idle, empty room with no pending reconnects', () => {
+    const room = createRoom('Test', 'fib');
+    room.lastActivity = Date.now() - TIMEOUT - 1000;
+    assert.equal(isRoomExpired(room, Date.now(), TIMEOUT), true);
+  });
+
+  it('does NOT expire a room that still has a player inside the reconnect window', () => {
+    const room = createRoom('Test', 'fib');
+    room.lastActivity = Date.now() - TIMEOUT - 1000; // idle long enough
+    room.disconnected.set('idA', { player: { color: 0 }, timeout: null });
+    assert.equal(isRoomExpired(room, Date.now(), TIMEOUT), false);
+  });
+
+  it('does NOT expire a room with a connected player', () => {
+    const room = createRoom('Test', 'fib');
+    addPlayer(room, 'Alice');
+    room.lastActivity = Date.now() - TIMEOUT - 1000;
+    assert.equal(isRoomExpired(room, Date.now(), TIMEOUT), false);
+  });
+});
