@@ -248,7 +248,10 @@ function isRoomExpired(room, now, timeoutMs) {
 function changeColor(room, playerId, colorIndex) {
   const player = room.players.get(playerId);
   if (!player) return false;
-  if (typeof colorIndex !== 'number' || colorIndex < 0 || colorIndex >= NUM_COLORS) return false;
+  // Number.isInteger rejects NaN, Infinity, floats, and non-numbers in one shot.
+  // (typeof NaN === 'number' and every NaN comparison is false, so the old guard
+  // let NaN/2.5 through and broadcast an undefined color to all clients.)
+  if (!Number.isInteger(colorIndex) || colorIndex < 0 || colorIndex >= NUM_COLORS) return false;
   player.color = colorIndex;
   return true;
 }

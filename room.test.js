@@ -396,6 +396,14 @@ describe('changeColor', () => {
     assert.equal(changeColor(room, playerId, null), false);
   });
 
+  it('rejects NaN, Infinity, and non-integer colors (no undefined-color broadcast)', () => {
+    const original = room.players.get(playerId).color;
+    for (const bad of [NaN, Infinity, -Infinity, 2.5, 0.1]) {
+      assert.equal(changeColor(room, playerId, bad), false, `should reject ${bad}`);
+    }
+    assert.equal(room.players.get(playerId).color, original, 'color stays valid');
+  });
+
   it('rejects unknown player', () => {
     assert.equal(changeColor(room, 'bogus', 5), false);
   });
