@@ -801,10 +801,13 @@ describe('createRoom votingSystem is prototype-safe', () => {
 describe('sanitizeName is codepoint-safe', () => {
   const { sanitizeName, MAX_NAME_LEN } = require('./room');
   it('does not leave a lone surrogate when truncating astral characters', () => {
-    const out = sanitizeName('😀'.repeat(30), 'x'); // 60 UTF-16 units, all astral
-    // No high surrogate that isn't immediately followed by a low surrogate.
+    // 'a' + 45 emoji = 91 UTF-16 units, 46 codepoints. The leading 'a' makes the
+    // 40th code unit fall MID surrogate pair, so a naive UTF-16 slice(0,40) would
+    // leave a lone high surrogate. Array.from caps by codepoint and cannot.
+    const out = sanitizeName('a' + '😀'.repeat(45), 'x');
     assert.ok(!/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(out), 'no unpaired high surrogate');
-    assert.ok(Array.from(out).length <= MAX_NAME_LEN);
+    // Over-cap input must be truncated to exactly MAX_NAME_LEN codepoints.
+    assert.equal(Array.from(out).length, MAX_NAME_LEN);
   });
   it('still caps plain ASCII to MAX_NAME_LEN codepoints', () => {
     assert.equal(Array.from(sanitizeName('a'.repeat(100), 'x')).length, MAX_NAME_LEN);

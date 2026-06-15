@@ -118,6 +118,16 @@ wss.on('connection', (ws) => {
   let currentRoom = null;
   let currentPlayerId = null;
 
+  // This socket still owns its seat only if the seat's ws is still us. After a
+  // fast-reconnect takeover the seat's ws points at the NEW socket, so any
+  // seat-mutating message from this (superseded) socket must be ignored —
+  // otherwise a late leave-room/vote from the old socket clobbers the live seat.
+  function ownsSeat() {
+    if (!currentRoom || !currentPlayerId) return false;
+    const p = currentRoom.players.get(currentPlayerId);
+    return !!p && p.ws === ws;
+  }
+
   // A socket-level error (oversized frame past maxPayload, abrupt reset) emits
   // 'error'; without a handler ws rethrows it as an uncaughtException that would
   // take down the whole process. Swallow it — the 'close' handler cleans up.
@@ -210,7 +220,7 @@ wss.on('connection', (ws) => {
       }
 
       case 'vote': {
-        if (!currentRoom || !currentPlayerId) return;
+        if (!ownsSeat()) return;
         if (room.vote(currentRoom, currentPlayerId, msg.value)) {
           broadcastRoom(currentRoom);
         }
@@ -218,7 +228,7 @@ wss.on('connection', (ws) => {
       }
 
       case 'clear-vote': {
-        if (!currentRoom || !currentPlayerId) return;
+        if (!ownsSeat()) return;
         if (room.clearVote(currentRoom, currentPlayerId)) {
           broadcastRoom(currentRoom);
         }
@@ -226,7 +236,7 @@ wss.on('connection', (ws) => {
       }
 
       case 'reveal': {
-        if (!currentRoom || !currentPlayerId) return;
+        if (!ownsSeat()) return;
         const result = room.reveal(currentRoom, currentPlayerId);
         if (!result.ok) return;
 
@@ -244,7 +254,7 @@ wss.on('connection', (ws) => {
       }
 
       case 'new-round': {
-        if (!currentRoom || !currentPlayerId) return;
+        if (!ownsSeat()) return;
         if (room.newRound(currentRoom, currentPlayerId)) {
           broadcastRoom(currentRoom);
         }
@@ -252,7 +262,7 @@ wss.on('connection', (ws) => {
       }
 
       case 'leave-room': {
-        if (!currentRoom || !currentPlayerId) return;
+        if (!ownsSeat()) return;
         room.removePlayer(currentRoom, currentPlayerId);
         if (currentRoom.players.size === 0 && currentRoom.disconnected.size === 0) {
           // Tearing the room down — cancel any pending countdown so its timer
@@ -268,7 +278,7 @@ wss.on('connection', (ws) => {
       }
 
       case 'change-color': {
-        if (!currentRoom || !currentPlayerId) return;
+        if (!ownsSeat()) return;
         if (room.changeColor(currentRoom, currentPlayerId, msg.colorIndex)) {
           broadcastRoom(currentRoom);
         }
@@ -278,7 +288,7 @@ wss.on('connection', (ws) => {
   });
 
   ws.on('close', () => {
-    if (!currentRoom || !currentPlayerId) return;
+    if (!ownsSeat()) return;
     const r = currentRoom;
     const pid = currentPlayerId;
     const player = r.players.get(pid);

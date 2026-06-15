@@ -727,5 +727,28 @@ describe('Server Integration', () => {
       await alice.close();
       await bob2.close();
     });
+
+    it('a superseded socket cannot mutate the live seat (leave-room from old socket is ignored)', async () => {
+      const { client: alice, roomId } = await createRoom('Supersede', 'Alice', 'tshirt');
+      const { client: bob, playerId: bobId, token: bobToken } = await joinRoom(roomId, 'Bob');
+      await alice.waitFor('room-state');
+
+      // bob2 takes over bob's seat; the OLD bob socket then flushes a leave-room
+      // in the takeover window. That message must NOT delete the reconnected seat.
+      const bob2 = await connect();
+      bob2.send({ type: 'join-room', roomId, playerName: 'Bob', playerId: bobId, token: bobToken });
+      bob.send({ type: 'leave-room' });
+      await bob2.waitFor('joined');
+      await new Promise(r => setTimeout(r, 100));
+
+      // bob2's seat must still be live: its vote registers and others see it.
+      bob2.send({ type: 'vote', value: 'M' });
+      const state = await alice.waitFor('room-state', m => m.room.players.some(p => p.id === bobId && p.vote === 'voted'));
+      assert.ok(state.room.players.some(p => p.id === bobId), 'reconnected seat survives a superseded leave-room');
+      assert.equal(state.room.players.length, 2);
+
+      await alice.close();
+      await bob2.close();
+    });
   });
 });
