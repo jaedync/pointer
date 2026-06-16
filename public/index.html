@@ -1576,7 +1576,11 @@
       let indicator = '';
       if (state.room.revealed && p.vote) {
         indicator = `<div class="player-vote-indicator revealed-vote"><span class="vi-val">${escapeHtml(String(p.vote))}</span></div>`;
-      } else if (p.vote === 'voted') {
+      } else if (p.vote) {
+        // Any non-null vote pre-reveal = "voted". Must be a truthy check, NOT
+        // `=== 'voted'`: the server unmasks the LOCAL player's own vote to its
+        // real value, so a strict sentinel check would leave your own dot stuck
+        // on "waiting" while everyone else's updated correctly.
         indicator = `<div class="player-vote-indicator voted" style="background:${color}"></div>`;
       } else {
         indicator = `<div class="player-vote-indicator waiting"></div>`;

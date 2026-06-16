@@ -65,6 +65,14 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   await host.locator('#hand-cards .hand-card', { hasText: 'M' }).first().click();
   await guest.locator('#hand-cards .hand-card', { hasText: 'L' }).first().click();
   await sleep(300);
+  // Your OWN vote must show as "voted" in your sidebar (server unmasks your own
+  // value, so a strict ==='voted' check left it stuck on "waiting").
+  check('own sidebar indicator shows voted after voting',
+    (await host.locator('#players-list .player-row.is-you .player-vote-indicator.voted').count()) === 1 &&
+    (await host.locator('#players-list .player-row.is-you .player-vote-indicator.waiting').count()) === 0);
+  // And the guest sees the host as voted too (the other-player path).
+  check('other players see your vote as voted',
+    (await guest.locator('#players-list .player-vote-indicator.voted').count()) >= 1);
   // Count countdownPop animation (re)starts on the guest during the countdown:
   // a healthy ~2.2s countdown shows 3,2,1 → ~3 pops. The strobe bug restarted
   // the animation ~5x/sec (~11+). Anything above a few = regression.

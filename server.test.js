@@ -591,6 +591,25 @@ describe('Server Integration', () => {
       assert.ok(/max-age=\d+/.test(res.headers.get('cache-control') || ''), 'cache-control present');
     });
 
+    it('serves the HTML shell with an ETag and a paint-from-cache policy (no white-flash re-download)', async () => {
+      const res = await fetch(baseUrl);
+      assert.equal(res.status, 200);
+      const cc = res.headers.get('cache-control') || '';
+      // Must allow instant paint from cache + background revalidation, not a
+      // blocking full re-download on every load.
+      assert.match(cc, /stale-while-revalidate/, `shell cache-control was: ${cc}`);
+      assert.ok(res.headers.get('etag'), 'shell must send an ETag validator');
+    });
+
+    it('returns 304 (tiny) for a conditional GET with a matching If-None-Match', async () => {
+      const first = await fetch(`${baseUrl}/render.js`);
+      const etag = first.headers.get('etag');
+      assert.ok(etag, 'asset must send an ETag');
+      const second = await fetch(`${baseUrl}/render.js`, { headers: { 'If-None-Match': etag } });
+      assert.equal(second.status, 304, 'matching ETag should revalidate to 304');
+      assert.equal((await second.text()).length, 0, '304 must have an empty body');
+    });
+
     it('enforces the 64KB frame cap by closing the offending socket, server survives', async () => {
       const c = await connect();
       const closed = new Promise(res => c.ws.on('close', (code) => res(code)));

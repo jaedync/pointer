@@ -1,6 +1,7 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { WebSocketServer } = require('ws');
 const room = require('./room');
 
@@ -84,12 +85,24 @@ const server = http.createServer((req, res) => {
       res.end('Internal Server Error');
       return;
     }
-    // index.html is the app shell — must always re-validate so updates ship.
+    const isShell = !isStatic || path.basename(filePath) === 'index.html';
+    // Shell: paint instantly from cache and revalidate in the BACKGROUND
+    // (stale-while-revalidate) so a reload never blanks white waiting on the
+    // network — yet the next load still picks up a deploy. Earlier `no-cache`
+    // had no validator, forcing a full HTML re-download (white) on every load.
     // Other assets aren't fingerprinted, so cache them modestly (1h).
-    const cacheControl = (!isStatic || path.basename(filePath) === 'index.html')
-      ? 'no-cache'
+    const cacheControl = isShell
+      ? 'max-age=0, stale-while-revalidate=86400'
       : 'public, max-age=3600';
-    res.writeHead(200, { ...SECURITY_HEADERS, 'Content-Type': contentType, 'Cache-Control': cacheControl });
+    // Weak ETag from the content so conditional GETs revalidate cheaply (304).
+    const etag = 'W/"' + crypto.createHash('sha1').update(data).digest('base64').replace(/=+$/, '').slice(0, 20) + '"';
+    const baseHeaders = { ...SECURITY_HEADERS, 'Cache-Control': cacheControl, 'ETag': etag };
+    if (req.headers['if-none-match'] === etag) {
+      res.writeHead(304, baseHeaders);
+      res.end();
+      return;
+    }
+    res.writeHead(200, { ...baseHeaders, 'Content-Type': contentType });
     res.end(data);
   });
 });
