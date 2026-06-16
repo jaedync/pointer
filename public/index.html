@@ -1918,48 +1918,69 @@
   }
 
   let countdownInterval = null;
+  let countdownShownSecond = null; // the integer currently painted, to avoid redundant DOM writes
+  let countdownEndsAtShown = null; // which countdown we're displaying, to detect a fresh one
 
   function stopCountdown() {
     if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null; }
+    countdownShownSecond = null;
+    countdownEndsAtShown = null;
     const overlay = document.getElementById('countdown-overlay');
     if (overlay) overlay.classList.remove('show');
   }
 
-  // Single source of truth: the room's countdownEndsAt (epoch ms). A lone
-  // interval repaints the remaining whole seconds; it is cleared on reveal, on
-  // expiry, or when the field clears — so overlapping/stale intervals can't
-  // resurrect the overlay over an already-revealed board.
   // Estimate the server's clock from the last room-state's serverTime. The
   // countdown end time is in SERVER time, so comparing it against this (not the
   // raw local clock) keeps the displayed seconds correct under clock skew.
   function serverNow() { return Date.now() + (state.serverClockOffset || 0); }
 
+  // Countdown is derived from the shared room.countdownEndsAt (epoch ms). The
+  // overlay structure is built ONCE; only the number's text changes, and only
+  // when the whole-second value actually changes. The pop animation is
+  // re-triggered exactly once per new number — NOT on every tick — otherwise a
+  // fast interval rebuilding the DOM restarts the 0.8s animation continuously
+  // and the number strobes.
   function updateCountdown() {
     const endsAt = (state.room && !state.room.revealed) ? state.room.countdownEndsAt : null;
     if (!endsAt) { stopCountdown(); return; }
-    const by = state.room.countdownBy || '';
-    const paint = () => {
+
+    let overlay = document.getElementById('countdown-overlay');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'countdown-overlay';
+      overlay.className = 'countdown-overlay';
+      overlay.innerHTML = '<div class="countdown-number"></div><div class="countdown-label"></div>';
+      document.querySelector('.stage').appendChild(overlay);
+    }
+    overlay.classList.add('show');
+    const numEl = overlay.querySelector('.countdown-number');
+    const labelEl = overlay.querySelector('.countdown-label');
+    const labelText = `${state.room.countdownBy || ''} is revealing...`;
+    if (labelEl.textContent !== labelText) labelEl.textContent = labelText;
+
+    // A new reveal (different end time) restarts the displayed sequence.
+    if (endsAt !== countdownEndsAtShown) { countdownEndsAtShown = endsAt; countdownShownSecond = null; }
+
+    const tick = () => {
       const remainingMs = endsAt - serverNow();
-      // Clamp display to >=1: never flash "0", and hold the last frame until the
-      // reveal room-state arrives and clears the overlay (cascade takes over).
-      const remaining = Math.max(1, Math.ceil(remainingMs / 1000));
-      let overlay = document.getElementById('countdown-overlay');
-      if (!overlay) {
-        overlay = document.createElement('div');
-        overlay.id = 'countdown-overlay';
-        overlay.className = 'countdown-overlay';
-        document.querySelector('.stage').appendChild(overlay);
+      // Clamp to >=1: never flash "0"; hold the last frame until the reveal
+      // room-state arrives and clears the overlay (the cascade takes over).
+      const sec = Math.max(1, Math.ceil(remainingMs / 1000));
+      if (sec !== countdownShownSecond) {
+        countdownShownSecond = sec;
+        numEl.textContent = sec;
+        // Restart the pop animation exactly once for this new number.
+        numEl.style.animation = 'none';
+        void numEl.offsetWidth; // reflow so the re-add restarts the animation
+        numEl.style.animation = '';
       }
-      overlay.innerHTML = `<div class="countdown-number">${remaining}</div><div class="countdown-label">${escapeHtml(by)} is revealing...</div>`;
-      overlay.classList.add('show');
       if (remainingMs <= 0 && countdownInterval) {
-        // Stop ticking but keep the overlay; the imminent reveal clears it.
         clearInterval(countdownInterval);
         countdownInterval = null;
       }
     };
-    paint();
-    if (!countdownInterval) countdownInterval = setInterval(paint, 200);
+    tick();
+    if (!countdownInterval) countdownInterval = setInterval(tick, 250);
   }
 
   function showToast(message) {

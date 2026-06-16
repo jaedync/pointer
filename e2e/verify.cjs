@@ -8,7 +8,7 @@ const { chromium } = require('playwright');
 
 const PORT = 3987;
 process.env.PORT = String(PORT);
-process.env.COUNTDOWN_MS = '700'; // observable cascade without long waits
+process.env.COUNTDOWN_MS = '2200'; // spans ~3 displayed seconds so the strobe check is meaningful
 const SHOTS = os.tmpdir();
 
 const results = [];
@@ -65,11 +65,20 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   await host.locator('#hand-cards .hand-card', { hasText: 'M' }).first().click();
   await guest.locator('#hand-cards .hand-card', { hasText: 'L' }).first().click();
   await sleep(300);
+  // Count countdownPop animation (re)starts on the guest during the countdown:
+  // a healthy ~2.2s countdown shows 3,2,1 → ~3 pops. The strobe bug restarted
+  // the animation ~5x/sec (~11+). Anything above a few = regression.
+  await guest.evaluate(() => {
+    window.__pops = 0;
+    document.addEventListener('animationstart', e => { if (e.animationName === 'countdownPop') window.__pops++; }, true);
+  });
   await host.click('button.btn-reveal');
   await guest.waitForSelector('#countdown-overlay.show', { timeout: 3000 }).catch(() => {});
   check('guest sees countdown overlay (room-state driven)',
     (await guest.locator('#countdown-overlay.show').count()) > 0);
-  await host.waitForFunction(() => state.room && state.room.revealed === true, { timeout: 4000 });
+  await host.waitForFunction(() => state.room && state.room.revealed === true, { timeout: 5000 });
+  const pops = await guest.evaluate(() => window.__pops);
+  check('countdown does not strobe (≤5 pop animations over a 2.2s countdown)', pops <= 5, `${pops} countdownPop restarts`);
   await sleep(900);
   await host.screenshot({ path: path.join(SHOTS, 'pointer-e2e-revealed.png') });
   const revealed = await host.$$eval('#stage-cards .sc-value', els => els.map(e => e.textContent));
