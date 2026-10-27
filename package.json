@@ -7,15 +7,17 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "node --test --test-force-exit room.test.js render.test.js server.test.js",
-    "test:unit": "node --test room.test.js render.test.js",
+    "test": "node --test --test-force-exit room.test.js render.test.js persist.test.js server.test.js",
+    "test:unit": "node --test room.test.js render.test.js persist.test.js",
     "test:integration": "node --test --test-force-exit server.test.js",
-    "test:e2e": "node e2e/verify.cjs"
+    "test:e2e": "node e2e/verify.cjs && node e2e/viewports.cjs",
+    "test:e2e:viewports": "node e2e/viewports.cjs"
   },
   "dependencies": {
     "ws": "^8.19.0"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
     "playwright": "^1.58.0"
   }
 }

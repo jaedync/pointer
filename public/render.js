@@ -6,7 +6,8 @@
   'use strict';
 
   function playersEqualForData(a, b) {
-    return a.name === b.name && a.color === b.color && a.isHost === b.isHost;
+    return a.name === b.name && a.color === b.color && a.isHost === b.isHost
+      && !!a.away === !!b.away && !!a.observer === !!b.observer;
   }
 
   function classifyUpdate(before, after) {
@@ -88,8 +89,65 @@
     return dists.map(d => ((d - minDist) / range) * cascadeWindowMs);
   }
 
+  // Summary of a revealed round. `players` are the voting seats ({name, vote});
+  // `deck` is the room's card order. Counts follow deck order so the result
+  // reads like the hand. The average (and the deck card nearest to it) exists
+  // only for all-numeric decks; '?' never counts toward it.
+  function computeRoundStats(players, deck) {
+    const order = Array.isArray(deck) ? deck : [];
+    const voted = (players || []).filter(p => p && p.vote);
+    const byValue = new Map();
+    for (const p of voted) {
+      if (!byValue.has(p.vote)) byValue.set(p.vote, []);
+      byValue.get(p.vote).push(p.name);
+    }
+    const rank = v => { const i = order.indexOf(v); return i === -1 ? order.length : i; };
+    const counts = [...byValue.entries()]
+      .map(([value, names]) => ({ value, n: names.length, names }))
+      .sort((a, b) => rank(a.value) - rank(b.value));
+
+    const faces = order.filter(v => v !== '?');
+    const numericDeck = faces.length > 0 && faces.every(v => v !== '' && Number.isFinite(Number(v)));
+    const sized = counts.filter(c => c.value !== '?');
+    let average = null, nearest = null;
+    if (numericDeck && sized.length > 0) {
+      const total = sized.reduce((s, c) => s + Number(c.value) * c.n, 0);
+      const n = sized.reduce((s, c) => s + c.n, 0);
+      average = Math.round((total / n) * 10) / 10;
+      nearest = faces.reduce((best, v) =>
+        Math.abs(Number(v) - average) < Math.abs(Number(best) - average) ? v : best, faces[0]);
+    }
+    let low = null, high = null, spread = 0;
+    if (sized.length >= 2) {
+      low = { value: sized[0].value, names: sized[0].names };
+      high = { value: sized[sized.length - 1].value, names: sized[sized.length - 1].names };
+      spread = rank(high.value) - rank(low.value);
+    }
+    return { voted: voted.length, counts, average, nearest, low, high, spread };
+  }
+
+  // Hand fan geometry for `n` cards: a symmetric arc whatever the deck size.
+  // The total sweep is capped so a 9-card deck does not lean or splay.
+  function fanLayout(n) {
+    if (!(n > 0)) return [];
+    if (n === 1) return [{ rot: 0, lift: 0 }];
+    const mid = (n - 1) / 2;
+    const step = Math.min(6, 40 / (n - 1));
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      const off = i - mid;
+      out.push({
+        rot: (Math.round(off * step * 100) / 100) || 0,  // no -0
+        lift: Math.round(Math.pow(Math.abs(off) / mid, 2) * 10 * 100) / 100,
+      });
+    }
+    return out;
+  }
+
   root.computeStageDiff    = computeStageDiff;
   root.computeRevealDelays = computeRevealDelays;
+  root.computeRoundStats   = computeRoundStats;
+  root.fanLayout           = fanLayout;
 })(
   typeof module !== 'undefined' && module.exports
     ? module.exports

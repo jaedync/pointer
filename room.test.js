@@ -804,6 +804,14 @@ describe('createRoom votingSystem is prototype-safe', () => {
     const { playerId } = addP(room, 'Alice');
     assert.doesNotThrow(() => voteFn(room, playerId, 'M'));
   });
+
+  it('a non-string key (object with a bad toString) falls back without throwing', () => {
+    for (const key of [{ toString: 1 }, { toString() { throw new Error('x'); } }, 5, null]) {
+      let room;
+      assert.doesNotThrow(() => { room = createRoom('x', key); });
+      assert.equal(room.votingSystemKey, 'tshirt');
+    }
+  });
 });
 
 describe('sanitizeName is codepoint-safe', () => {
@@ -819,5 +827,101 @@ describe('sanitizeName is codepoint-safe', () => {
   });
   it('still caps plain ASCII to MAX_NAME_LEN codepoints', () => {
     assert.equal(Array.from(sanitizeName('a'.repeat(100), 'x')).length, MAX_NAME_LEN);
+  });
+});
+
+// ─── away seats, host claim, observers, topic ─────────────────────────────────
+
+describe('away seats and host hand-off', () => {
+  const { claimHost, markAway, markBack, setObserver, setTopic, voters } = require('./room');
+
+  it('an away host keeps the role; promoteHost does not replace them', () => {
+    const room = createRoom('T', 'fib');
+    const a = addPlayer(room, 'A', null);
+    addPlayer(room, 'B', null);
+    markAway(room, a.playerId);
+    promoteHost(room);
+    assert.equal(room.players.get(a.playerId).isHost, true);
+  });
+
+  it('claimHost works only while the host is away, and keeps one host', () => {
+    const room = createRoom('T', 'fib');
+    const a = addPlayer(room, 'A', null);
+    const b = addPlayer(room, 'B', null);
+    assert.equal(claimHost(room, b.playerId), false);
+    markAway(room, a.playerId);
+    assert.equal(claimHost(room, b.playerId), true);
+    markBack(room, a.playerId, null);
+    assert.deepEqual([...room.players.values()].map(p => p.isHost), [false, true]);
+  });
+
+  it('removing an away host promotes a present voter before an observer', () => {
+    const room = createRoom('T', 'fib');
+    const a = addPlayer(room, 'A', null);
+    const o = addPlayer(room, 'O', null);
+    addPlayer(room, 'C', null);
+    setObserver(room, o.playerId, true);
+    markAway(room, a.playerId);
+    removePlayer(room, a.playerId);
+    assert.equal([...room.players.values()].find(p => p.isHost).name, 'C');
+  });
+
+  it('becoming an observer clears the vote; observers cannot vote', () => {
+    const room = createRoom('T', 'fib');
+    const a = addPlayer(room, 'A', null);
+    vote(room, a.playerId, '5');
+    assert.equal(setObserver(room, a.playerId, true), true);
+    assert.equal(room.players.get(a.playerId).vote, null);
+    assert.equal(vote(room, a.playerId, '5'), false);
+    assert.equal(voters(room).length, 0);
+    assert.equal(setObserver(room, a.playerId, 'yes'), false);
+  });
+
+  it('becoming an observer after the reveal keeps the revealed result', () => {
+    const room = createRoom('T', 'fib');
+    const a = addPlayer(room, 'A', null);
+    const b = addPlayer(room, 'B', null);
+    const c = addPlayer(room, 'C', null);
+    vote(room, a.playerId, '5'); vote(room, b.playerId, '5'); vote(room, c.playerId, '8');
+    applyReveal(room);
+    const before = serializeRoom(room).consensus;
+    setObserver(room, c.playerId, true);
+    assert.equal(room.players.get(c.playerId).vote, '8');
+    assert.deepEqual(serializeRoom(room).consensus, before);
+    assert.equal(room.history[0].state, before.state);
+    assert.equal(newRound(room, a.playerId), true);
+    assert.equal(voters(room).length, 2, 'from the next round, the observer does not count');
+  });
+
+  it('an away player\'s vote still counts at reveal', () => {
+    const room = createRoom('T', 'fib');
+    const a = addPlayer(room, 'A', null);
+    const b = addPlayer(room, 'B', null);
+    vote(room, a.playerId, '5');
+    vote(room, b.playerId, '5');
+    markAway(room, b.playerId);
+    assert.equal(applyReveal(room).hasConsensus, true);
+  });
+
+  it('setTopic is host-only, trimmed and capped', () => {
+    const room = createRoom('T', 'fib');
+    const a = addPlayer(room, 'A', null);
+    const b = addPlayer(room, 'B', null);
+    assert.equal(setTopic(room, b.playerId, 'x'), false);
+    assert.equal(setTopic(room, a.playerId, '  a   b  '), true);
+    assert.equal(room.topic, 'a b');
+    setTopic(room, a.playerId, 'y'.repeat(500));
+    assert.equal(room.topic.length, 120);
+  });
+
+  it('the agreement tracker matches the unanimous pill (a ? vote breaks it)', () => {
+    const room = createRoom('T', 'fib');
+    const a = addPlayer(room, 'A', null);
+    const b = addPlayer(room, 'B', null);
+    const c = addPlayer(room, 'C', null);
+    vote(room, a.playerId, '5'); vote(room, b.playerId, '5'); vote(room, c.playerId, '?');
+    applyReveal(room);
+    assert.equal(computeConsensus(room).state, 'consensus');
+    assert.equal(room.consensusCount, 0);
   });
 });
