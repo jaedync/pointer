@@ -268,7 +268,12 @@ wss.on('connection', (ws) => {
           return;
         }
 
-        const { playerId, token } = room.addPlayer(r, msg.playerName, ws);
+        const added = room.addPlayer(r, msg.playerName, ws);
+        if (!added) {
+          ws.send(JSON.stringify({ type: 'error', message: `This room is full (${room.MAX_PLAYERS} people).` }));
+          return;
+        }
+        const { playerId, token } = added;
         if (msg.observer === true) room.setObserver(r, playerId, true);
         currentRoom = r;
         currentPlayerId = playerId;

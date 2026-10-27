@@ -2026,10 +2026,12 @@
       const isMe = p.id === state.playerId;
       const color = COLORS[p.color] || COLORS[0];
       let indicator = '';
-      if (p.observer) {
-        indicator = `<div class="player-vote-indicator observing" title="Watching">${EYE_SVG}</div>`;
-      } else if (state.room.revealed && p.vote) {
+      // A revealed vote comes first: an observer who switched after the reveal
+      // still has a vote in the result, so the sidebar must show it too.
+      if (state.room.revealed && p.vote) {
         indicator = `<div class="player-vote-indicator revealed-vote"><span class="vi-val">${escapeHtml(String(p.vote))}</span></div>`;
+      } else if (p.observer) {
+        indicator = `<div class="player-vote-indicator observing" title="Watching">${EYE_SVG}</div>`;
       } else if (p.vote) {
         // Any non-null vote pre-reveal = "voted". Must be a truthy check, NOT
         // `=== 'voted'`: the server unmasks the LOCAL player's own vote to its

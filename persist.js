@@ -43,25 +43,33 @@ function snapshotRooms(rooms, now = Date.now()) {
 const isStr = v => typeof v === 'string';
 const isInt = v => Number.isInteger(v) && v >= 0;
 
-// Bounds for a snapshot. Far above real use (a room rarely has 20 people), low
-// enough that a damaged or planted file cannot exhaust memory at boot.
-const MAX_SNAPSHOT_BYTES = 5 * 1024 * 1024;
-const MAX_ROOMS = 10000;
-const MAX_PLAYERS = 200;
+// Bounds for a snapshot, so a damaged or planted file cannot exhaust memory at
+// boot. They match the live limits: anything the server holds, it can restore.
+// saveSnapshot refuses to write a file larger than the load limit, so the last
+// loadable snapshot stays in place.
+const MAX_SNAPSHOT_BYTES = 64 * 1024 * 1024;
 const MAX_ID_LEN = 64;
 const HISTORY_STATES = new Set(['none', 'split', 'consensus', 'unanimous']);
 
 const cleanTopic = t => isStr(t) ? Array.from(t).slice(0, room.MAX_TOPIC_LEN).join('') : '';
 
 // The client renders history fields directly, so every record must have the
-// shape that applyReveal writes. Values outside the deck are dropped.
-function cleanHistoryEntry(h, deck) {
-  if (!h || typeof h !== 'object' || !isInt(h.round) || !HISTORY_STATES.has(h.state)) return null;
+// shape that applyReveal writes. Values outside the deck are dropped, and each
+// drop is counted in report.rejected.
+function cleanHistoryEntry(h, deck, report) {
+  if (!h || typeof h !== 'object' || !isInt(h.round) || !HISTORY_STATES.has(h.state)) {
+    report.rejected++;
+    return null;
+  }
   const inDeck = v => isStr(v) && deck.includes(v);
-  const values = Array.isArray(h.values) ? h.values.slice(0, deck.length).filter(inDeck) : [];
-  const counts = Array.isArray(h.counts)
-    ? h.counts.slice(0, deck.length).filter(c => c && inDeck(c.value) && isInt(c.n)).map(c => ({ value: c.value, n: c.n }))
-    : [];
+  const keep = (list, ok) => {
+    if (!Array.isArray(list)) { if (list !== undefined) report.rejected++; return []; }
+    const kept = list.slice(0, deck.length).filter(ok);
+    report.rejected += list.length - kept.length;
+    return kept;
+  };
+  const values = keep(h.values, inDeck);
+  const counts = keep(h.counts, c => c && inDeck(c.value) && isInt(c.n)).map(c => ({ value: c.value, n: c.n }));
   return {
     round: h.round,
     topic: cleanTopic(h.topic),
@@ -73,12 +81,17 @@ function cleanHistoryEntry(h, deck) {
   };
 }
 
-function restorePlayer(p, deck) {
-  if (!p || !isStr(p.id) || !isStr(p.token) || p.id.length > MAX_ID_LEN || p.token.length > MAX_ID_LEN) return null;
+function restorePlayer(p, deck, report) {
+  if (!p || !isStr(p.id) || !isStr(p.token) || p.id.length > MAX_ID_LEN || p.token.length > MAX_ID_LEN) {
+    report.rejected++;
+    return null;
+  }
+  const voteOk = p.vote === null || p.vote === undefined || (isStr(p.vote) && deck.includes(p.vote));
+  if (!voteOk) report.rejected++;
   return {
     name: room.sanitizeName(isStr(p.name) ? p.name : '', 'Player'),
     token: p.token,
-    vote: isStr(p.vote) && deck.includes(p.vote) ? p.vote : null,
+    vote: voteOk && isStr(p.vote) ? p.vote : null,
     voteSeq: isInt(p.voteSeq) ? p.voteSeq : 0,
     isHost: p.isHost === true,
     color: Number.isInteger(p.color) && p.color >= 0 && p.color < room.NUM_COLORS ? p.color : 0,
@@ -88,21 +101,28 @@ function restorePlayer(p, deck) {
   };
 }
 
-// Returns the room, or null when the record cannot be used.
-function restoreRoom(s) {
+// Returns the room, or null when the record cannot be used. Data dropped from a
+// room that is kept is counted in report.rejected.
+function restoreRoom(s, report) {
   if (!s || !isStr(s.id) || !/^[a-z0-9]{1,16}$/.test(s.id) || !Array.isArray(s.players)) return null;
   const r = room.createRoom(isStr(s.name) ? s.name : '', s.votingSystemKey, s.id);
   r.revealed = s.revealed === true;
   r.roundNumber = isInt(s.roundNumber) ? s.roundNumber : 0;
   r.consensusCount = isInt(s.consensusCount) ? s.consensusCount : 0;
   r.topic = cleanTopic(s.topic);
-  r.history = Array.isArray(s.history)
-    ? s.history.slice(0, room.MAX_HISTORY).map(h => cleanHistoryEntry(h, r.votingSystem)).filter(Boolean)
-    : [];
+  if (Array.isArray(s.history)) {
+    report.rejected += Math.max(0, s.history.length - room.MAX_HISTORY);
+    r.history = s.history.slice(0, room.MAX_HISTORY).map(h => cleanHistoryEntry(h, r.votingSystem, report)).filter(Boolean);
+  } else if (s.history !== undefined) {
+    report.rejected++;
+  }
   r.lastActivity = Number.isFinite(s.lastActivity) ? s.lastActivity : Date.now();
-  for (const p of s.players.slice(0, MAX_PLAYERS)) {
-    const player = restorePlayer(p, r.votingSystem);
-    if (player && !r.players.has(p.id)) r.players.set(p.id, player);
+  report.rejected += Math.max(0, s.players.length - room.MAX_PLAYERS);
+  for (const p of s.players.slice(0, room.MAX_PLAYERS)) {
+    const player = restorePlayer(p, r.votingSystem, report);
+    if (!player) continue;
+    if (r.players.has(p.id)) { report.rejected++; continue; }
+    r.players.set(p.id, player);
   }
   if (r.players.size === 0) return null;
   // Exactly one host, even if the file says otherwise.
@@ -121,19 +141,24 @@ function restoreRoom(s) {
 // but a truncated or hand-edited file must not crash the server or smuggle in
 // values that the live checks would refuse (votes outside the deck, bad colors).
 // Each room is restored on its own, so one bad record costs only that room.
-// report.rejected counts the records that were dropped.
+// report.rejected counts everything dropped: rooms, players, history records,
+// and a file whose root shape is wrong. Zero means nothing was lost.
 function restoreRooms(data, report = {}) {
   const out = new Map();
   report.rejected = 0;
-  if (!data || data.version !== SNAPSHOT_VERSION || !Array.isArray(data.rooms)) return out;
-  report.rejected = Math.max(0, data.rooms.length - MAX_ROOMS);
-  for (const s of data.rooms.slice(0, MAX_ROOMS)) {
+  if (!data || data.version !== SNAPSHOT_VERSION || !Array.isArray(data.rooms)) {
+    report.rejected = 1;
+    return out;
+  }
+  for (const s of data.rooms) {
     let r = null;
-    try { r = restoreRoom(s); } catch (e) {
+    try { r = restoreRoom(s, report); } catch (e) {
       console.error(`[persist] dropping a room that cannot be restored: ${e.message}`);
     }
     if (r && !out.has(r.id)) out.set(r.id, r);
-    else report.rejected++;
+    // A room with no seats holds nothing to lose (the server deletes empty
+    // rooms at once, so such a record is rare).
+    else if (!(s && Array.isArray(s.players) && s.players.length === 0)) report.rejected++;
   }
   return out;
 }
@@ -150,12 +175,12 @@ function keepRejected(file, why) {
   }
 }
 
-function loadSnapshot(file) {
+function loadSnapshot(file, maxBytes = MAX_SNAPSHOT_BYTES) {
   if (!file) return new Map();
   let text;
   try {
-    if (fs.statSync(file).size > MAX_SNAPSHOT_BYTES) {
-      keepRejected(file, `snapshot ${file} is larger than ${MAX_SNAPSHOT_BYTES} bytes`);
+    if (fs.statSync(file).size > maxBytes) {
+      keepRejected(file, `snapshot ${file} is larger than ${maxBytes} bytes`);
       return new Map();
     }
     text = fs.readFileSync(file, 'utf8');
@@ -170,20 +195,27 @@ function loadSnapshot(file) {
   }
   const report = {};
   const rooms = restoreRooms(data, report);
-  if (report.rejected > 0 || (data && data.version !== SNAPSHOT_VERSION)) {
-    keepRejected(file, `${report.rejected} room(s) in ${file} could not be restored`);
+  if (report.rejected > 0) {
+    keepRejected(file, `${report.rejected} record(s) in ${file} could not be restored`);
   }
   return rooms;
 }
 
 // Atomic write: a crash mid-write leaves the previous snapshot intact. The file
 // holds reconnect tokens, so it is readable by the owner only.
-function saveSnapshot(file, rooms) {
+// A snapshot over the load limit is not written: the previous file can still
+// be loaded, and a new one could not.
+function saveSnapshot(file, rooms, maxBytes = MAX_SNAPSHOT_BYTES) {
   if (!file) return;
   try {
+    const json = JSON.stringify(snapshotRooms(rooms));
+    if (Buffer.byteLength(json) > maxBytes) {
+      console.error(`[persist] snapshot is ${Buffer.byteLength(json)} bytes, over the ${maxBytes} byte limit; kept the previous file`);
+      return;
+    }
     fs.mkdirSync(path.dirname(file), { recursive: true });
     const tmp = `${file}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(snapshotRooms(rooms)), { mode: 0o600 });
+    fs.writeFileSync(tmp, json, { mode: 0o600 });
     fs.renameSync(tmp, file);
   } catch (e) {
     console.error(`[persist] cannot write ${file}: ${e.message}`);

@@ -15,6 +15,9 @@ const NUM_COLORS = 12;
 const MAX_NAME_LEN = 40;
 const MAX_TOPIC_LEN = 120;
 const MAX_HISTORY = 25;
+// Seats per room, away seats included. Far above a planning meeting; it bounds
+// what one room costs in memory, in every broadcast and in the snapshot.
+const MAX_PLAYERS = 50;
 
 // Room-code alphabet with visually ambiguous characters removed (no 0/o, 1/l/i).
 // Lowercase + digits only so server-side lowercasing and case-insensitive joins
@@ -97,7 +100,9 @@ function getNextColor(room) {
   return room.players.size % NUM_COLORS;
 }
 
+// Returns null when the room is full.
 function addPlayer(room, name, ws) {
+  if (room.players.size >= MAX_PLAYERS) return null;
   const playerId = generateId();
   const token = generateToken();
   const player = {
@@ -401,6 +406,7 @@ module.exports = {
   MAX_NAME_LEN,
   MAX_TOPIC_LEN,
   MAX_HISTORY,
+  MAX_PLAYERS,
   generateId,
   generateUniqueId,
   generateToken,

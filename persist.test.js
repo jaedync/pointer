@@ -83,7 +83,9 @@ describe('snapshot round trip', () => {
     assert.ok(back.has('abcde'));
     assert.equal(back.get('zzzzz').votingSystemKey, 'tshirt');
     assert.ok(!back.has('yyyyy'), 'a room whose only player has an oversized token is dropped');
-    assert.equal(report.rejected, 1);
+    // zzzzz falls back to the tshirt deck, so its fib vote '5' is dropped (1);
+    // yyyyy loses its only player (1) and then the empty room (1).
+    assert.equal(report.rejected, 3);
   });
 
   it('keeps a copy of a rejected or oversized snapshot instead of overwriting it', () => {
@@ -92,9 +94,59 @@ describe('snapshot round trip', () => {
     fs.writeFileSync(file, '{not json');
     assert.equal(loadSnapshot(file).size, 0);
     assert.equal(fs.readFileSync(`${file}.rejected`, 'utf8'), '{not json');
-    fs.writeFileSync(file, JSON.stringify({ version: 1, rooms: [], pad: 'x'.repeat(6 * 1024 * 1024) }));
-    assert.equal(loadSnapshot(file).size, 0);
-    assert.ok(fs.statSync(`${file}.rejected`).size > 5 * 1024 * 1024);
+    fs.writeFileSync(file, JSON.stringify({ version: 1, rooms: [], pad: 'x'.repeat(4096) }));
+    assert.equal(loadSnapshot(file, 1024).size, 0);
+    assert.ok(fs.statSync(`${file}.rejected`).size > 4096);
+    fs.rmSync(dir, { recursive: true });
+  });
+
+  it('any dropped data inside a kept room also keeps a copy; a clean file does not', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pointer-'));
+    const file = path.join(dir, 'rooms.json');
+    const { rooms, r } = sampleRooms();
+    room.applyReveal(r);
+    const clean = JSON.parse(JSON.stringify(snapshotRooms(rooms)));
+    const cases = {
+      'bad history record': s => { s.rooms[0].history.push(null); },
+      'bad value in a history record': s => { s.rooms[0].history[0].values.push('999'); },
+      'one bad player': s => { s.rooms[0].players.push({ id: 'p9', token: 7 }); },
+      'vote outside the deck': s => { s.rooms[0].players[0].vote = 'XL'; },
+      'rooms is not a list': s => { s.rooms = 'broken'; },
+    };
+    for (const [name, damage] of Object.entries(cases)) {
+      fs.rmSync(`${file}.rejected`, { force: true });
+      const snap = JSON.parse(JSON.stringify(clean));
+      damage(snap);
+      fs.writeFileSync(file, JSON.stringify(snap));
+      loadSnapshot(file);
+      assert.ok(fs.existsSync(`${file}.rejected`), name);
+    }
+    for (const ok of [clean, { version: 1, rooms: [] }, { version: 1, rooms: [{ id: 'empty', players: [] }] }]) {
+      fs.rmSync(`${file}.rejected`, { force: true });
+      fs.writeFileSync(file, JSON.stringify(ok));
+      loadSnapshot(file);
+      assert.ok(!fs.existsSync(`${file}.rejected`), 'a clean file makes no copy');
+    }
+    fs.rmSync(dir, { recursive: true });
+  });
+
+  it('a full room round-trips without loss', () => {
+    const r = room.createRoom('Big', 'fib', 'bigrm');
+    for (let i = 0; i < room.MAX_PLAYERS; i++) room.addPlayer(r, `P${i}`, null);
+    assert.equal(room.addPlayer(r, 'One too many', null), null);
+    const report = {};
+    const back = restoreRooms(JSON.parse(JSON.stringify(snapshotRooms(new Map([[r.id, r]])))), report);
+    assert.equal(back.get('bigrm').players.size, room.MAX_PLAYERS);
+    assert.equal(report.rejected, 0);
+  });
+
+  it('does not write a snapshot over the load limit; the previous file stays', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pointer-'));
+    const file = path.join(dir, 'rooms.json');
+    saveSnapshot(file, sampleRooms().rooms);
+    const before = fs.readFileSync(file, 'utf8');
+    saveSnapshot(file, sampleRooms().rooms, 10);
+    assert.equal(fs.readFileSync(file, 'utf8'), before);
     fs.rmSync(dir, { recursive: true });
   });
 

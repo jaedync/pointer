@@ -160,6 +160,18 @@ describe('Server Integration', () => {
   // ─── Join Room ─────────────────────────────────────────────────────────
 
   describe('join-room', () => {
+    it('refuses a join when the room is full, with a clear error', async () => {
+      const { MAX_PLAYERS } = require('./room');
+      const { client: host, roomId } = await createRoom('Full', 'Host', 'fib');
+      const guests = [];
+      for (let i = 1; i < MAX_PLAYERS; i++) guests.push((await joinRoom(roomId, `G${i}`)).client);
+      const late = await connect();
+      late.send({ type: 'join-room', roomId, playerName: 'Late' });
+      const err = await late.waitFor('error');
+      assert.match(err.message, /full/);
+      for (const c of [host, late, ...guests]) await c.close();
+    });
+
     it('second player joins, both see updated state', async () => {
       const { client: alice, roomId } = await createRoom('Join', 'Alice', 'tshirt');
       const { client: bob } = await joinRoom(roomId, 'Bob');
