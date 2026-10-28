@@ -1,9 +1,8 @@
 // Viewport matrix: the game must work and fit at phone, tablet and desktop
 // sizes, with no serious accessibility violations. The first audit found the
 // phone layout broken because the only browser test ran at 1280x720.
-//   npm run test:e2e:viewports        (screenshots in $SHOTS or the OS tmp dir)
+//   npm run test:e2e:viewports        (screenshots in $SHOTS or .tmp/viewports)
 const path = require('path');
-const os = require('os');
 const fs = require('fs');
 const { chromium, devices } = require('playwright');
 const { AxeBuilder } = require('@axe-core/playwright');
@@ -12,7 +11,7 @@ const PORT = 3988;
 process.env.PORT = String(PORT);
 process.env.COUNTDOWN_MS = '400';
 process.env.POINTER_STATE_FILE = '';
-const SHOTS = process.env.SHOTS || path.join(os.tmpdir(), 'pointer-viewports');
+const SHOTS = process.env.SHOTS || path.join(__dirname, '..', '.tmp', 'viewports');
 fs.mkdirSync(SHOTS, { recursive: true });
 
 const VIEWPORTS = [

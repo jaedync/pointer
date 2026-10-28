@@ -1,12 +1,23 @@
-const { describe, it } = require('node:test');
+const { describe, it, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 const WebSocket = require('ws');
 const room = require('./room');
 const { snapshotRooms, restoreRooms, saveSnapshot, loadSnapshot } = require('./persist');
+
+// Test files stay in the project's git-ignored .tmp folder, not the shared system /tmp.
+const TMP_ROOT = path.join(__dirname, '.tmp');
+const tempDirs = [];
+function tempDir() {
+  fs.mkdirSync(TMP_ROOT, { recursive: true });
+  const dir = fs.mkdtempSync(path.join(TMP_ROOT, 'persist-'));
+  tempDirs.push(dir);
+  return dir;
+}
+// Also runs after a failed test, which never reaches its own rmSync.
+afterEach(() => { for (const dir of tempDirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true }); });
 
 function sampleRooms() {
   const r = room.createRoom('Sprint', 'fib', 'abcde');
@@ -89,7 +100,7 @@ describe('snapshot round trip', () => {
   });
 
   it('keeps a copy of a rejected or oversized snapshot instead of overwriting it', () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pointer-'));
+    const dir = tempDir();
     const file = path.join(dir, 'rooms.json');
     fs.writeFileSync(file, '{not json');
     assert.equal(loadSnapshot(file).size, 0);
@@ -101,7 +112,7 @@ describe('snapshot round trip', () => {
   });
 
   it('any dropped data inside a kept room also keeps a copy; a clean file does not', () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pointer-'));
+    const dir = tempDir();
     const file = path.join(dir, 'rooms.json');
     const { rooms, r } = sampleRooms();
     room.applyReveal(r);
@@ -141,7 +152,7 @@ describe('snapshot round trip', () => {
   });
 
   it('does not write a snapshot over the load limit; the previous file stays', () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pointer-'));
+    const dir = tempDir();
     const file = path.join(dir, 'rooms.json');
     saveSnapshot(file, sampleRooms().rooms);
     const before = fs.readFileSync(file, 'utf8');
@@ -151,7 +162,7 @@ describe('snapshot round trip', () => {
   });
 
   it('save + load through a file, owner-only permissions', () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pointer-'));
+    const dir = tempDir();
     const file = path.join(dir, 'sub', 'rooms.json');
     saveSnapshot(file, sampleRooms().rooms);
     assert.equal(fs.statSync(file).mode & 0o777, 0o600);
@@ -195,7 +206,7 @@ describe('restart keeps rooms', () => {
   }
 
   it('survives SIGTERM + restart with seat, vote and host intact', async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pointer-'));
+    const dir = tempDir();
     const file = path.join(dir, 'rooms.json');
     const port = 40000 + Math.floor(Math.random() * 20000);
     let proc = await startProc(port, file);
