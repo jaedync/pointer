@@ -3,6 +3,7 @@
 // No WebSocket or HTTP concerns — just data structures and rules.
 
 const crypto = require('crypto');
+const { computeRoundStats } = require('./public/render.js');
 
 const VOTING_SYSTEMS = {
   tshirt: ['XS', 'S', 'M', 'L', 'XL', '?'],
@@ -12,6 +13,11 @@ const VOTING_SYSTEMS = {
 };
 const NUM_COLORS = 12;
 const MAX_NAME_LEN = 40;
+const MAX_TOPIC_LEN = 120;
+const MAX_HISTORY = 25;
+// Seats per room, away seats included. Far above a planning meeting; it bounds
+// what one room costs in memory, in every broadcast and in the snapshot.
+const MAX_PLAYERS = 50;
 
 // Room-code alphabet with visually ambiguous characters removed (no 0/o, 1/l/i).
 // Lowercase + digits only so server-side lowercasing and case-insensitive joins
@@ -58,7 +64,10 @@ function createRoom(name, votingSystem, id) {
   // OWN-property check only: a client-supplied key like 'toString' or
   // '__proto__' must not resolve to an inherited Object.prototype member, which
   // would make votingSystem a function and crash vote()'s .includes().
-  const hasSystem = Object.prototype.hasOwnProperty.call(VOTING_SYSTEMS, votingSystem);
+  // The string check comes first: hasOwnProperty converts its key, and an
+  // object key like {toString: 1} would throw inside that conversion.
+  const hasSystem = typeof votingSystem === 'string' &&
+    Object.prototype.hasOwnProperty.call(VOTING_SYSTEMS, votingSystem);
   return {
     id: id || generateId(),
     name: sanitizeName(name, 'Planning Poker'),
@@ -68,6 +77,8 @@ function createRoom(name, votingSystem, id) {
     revealed: false,
     roundNumber: 0,
     consensusCount: 0,
+    topic: '',
+    history: [],
     disconnected: new Map(),
     lastActivity: Date.now(),
     _countdownTimer: null,
@@ -89,7 +100,9 @@ function getNextColor(room) {
   return room.players.size % NUM_COLORS;
 }
 
+// Returns null when the room is full.
 function addPlayer(room, name, ws) {
+  if (room.players.size >= MAX_PLAYERS) return null;
   const playerId = generateId();
   const token = generateToken();
   const player = {
@@ -99,6 +112,8 @@ function addPlayer(room, name, ws) {
     voteSeq: 0,
     isHost: room.players.size === 0,
     color: getNextColor(room),
+    observer: false,
+    away: false,
     ws,
   };
   room.players.set(playerId, player);
@@ -113,16 +128,86 @@ function removePlayer(room, playerId) {
   return player;
 }
 
+// Guarantee exactly one host when anyone is seated. Prefer a present voter,
+// then any present player, then (all away) the first seat, so an away host is
+// never replaced here — that only happens when their reconnect window ends
+// (removePlayer) or when a present player claims the role (claimHost).
 function promoteHost(room) {
   const players = [...room.players.values()];
-  if (players.length > 0 && !players.some(p => p.isHost)) {
-    players[0].isHost = true;
+  if (players.length === 0 || players.some(p => p.isHost)) return;
+  const pick = players.find(p => !p.away && !p.observer)
+    || players.find(p => !p.away)
+    || players[0];
+  pick.isHost = true;
+}
+
+// A present player may take the host role only while the host is away (closed
+// tab, sleeping laptop). Otherwise the room would stall until the host's
+// reconnect window ends.
+function claimHost(room, playerId) {
+  const player = room.players.get(playerId);
+  if (!player || player.away || player.isHost) return false;
+  const host = [...room.players.values()].find(p => p.isHost);
+  if (host && !host.away) return false;
+  if (host) host.isHost = false;
+  player.isHost = true;
+  room.lastActivity = Date.now();
+  return true;
+}
+
+// Disconnect keeps the seat (and its order, vote and host role) and marks it
+// away. The server removes it when the reconnect window ends.
+function markAway(room, playerId) {
+  const player = room.players.get(playerId);
+  if (!player) return null;
+  player.away = true;
+  player.ws = null;
+  return player;
+}
+
+function markBack(room, playerId, ws) {
+  const player = room.players.get(playerId);
+  if (!player) return null;
+  player.away = false;
+  player.ws = ws;
+  return player;
+}
+
+function setObserver(room, playerId, observer) {
+  const player = room.players.get(playerId);
+  if (!player || typeof observer !== 'boolean') return false;
+  if (player.observer === observer) return false;
+  player.observer = observer;
+  // After the reveal the vote stays, so the shown result and the history entry
+  // still agree. newRound clears it, and from then on the observer is out.
+  if (observer && player.vote && !room.revealed) {
+    player.vote = null;
+    player.voteSeq = (player.voteSeq || 0) + 1;
   }
+  room.lastActivity = Date.now();
+  return true;
+}
+
+function setTopic(room, playerId, topic) {
+  const player = room.players.get(playerId);
+  if (!player || !player.isHost || typeof topic !== 'string') return false;
+  const clean = Array.from(topic.replace(/\s+/g, ' ').trim()).slice(0, MAX_TOPIC_LEN).join('');
+  if (clean === room.topic) return false;
+  room.topic = clean;
+  room.lastActivity = Date.now();
+  return true;
+}
+
+// Seats that count toward voting: everyone except observers. Away players stay
+// in: a vote cast before a dropped connection is still a vote. An observer who
+// still holds a vote switched after the reveal, and that vote is in the result.
+function voters(room) {
+  return [...room.players.values()].filter(p => !p.observer || p.vote);
 }
 
 function vote(room, playerId, value) {
   const player = room.players.get(playerId);
-  if (!player || room.revealed) return false;
+  if (!player || player.observer || room.revealed) return false;
   // The value must be one of the room's own card faces. This is the single
   // server-side gate that stops arbitrary strings (XSS payloads, prototype
   // keys like '__proto__') from ever reaching another client's DOM.
@@ -178,14 +263,27 @@ function applyReveal(room) {
   room.countdownEndsAt = null;
   room.countdownBy = null;
 
-  const votes = [...room.players.values()]
-    .map(p => p.vote)
-    .filter(v => v && v !== '?');
-  const hasConsensus = votes.length > 1 && votes.every(v => v === votes[0]);
+  const votes = voters(room).map(p => p.vote).filter(v => v && v !== '?');
+  // One definition of agreement everywhere: the tracker counts exactly the
+  // rounds that the result pill labels 'unanimous'.
+  const consensus = computeConsensus(room);
+  const hasConsensus = consensus.state === 'unanimous';
   if (hasConsensus) {
     room.consensusCount++;
   }
   room.roundNumber++;
+
+  const stats = computeRoundStats(voters(room), room.votingSystem);
+  room.history.unshift({
+    round: room.roundNumber,
+    topic: room.topic,
+    state: consensus.state,
+    values: consensus.values,
+    counts: stats.counts.map(c => ({ value: c.value, n: c.n })),
+    average: stats.average,
+    voters: stats.voted,
+  });
+  if (room.history.length > MAX_HISTORY) room.history.length = MAX_HISTORY;
 
   return { hasConsensus, votes };
 }
@@ -197,9 +295,8 @@ function applyReveal(room) {
 //   'consensus' — one value leads but not everyone agrees
 //   'split'     — two or more values tie for the lead
 function computeConsensus(room) {
-  const players = [...room.players.values()];
-  const voters = players.filter(p => p.vote);            // voted anything, incl '?'
-  const valueVotes = voters.map(p => p.vote).filter(v => v !== '?');
+  const voted = voters(room).filter(p => p.vote);         // voted anything, incl '?'
+  const valueVotes = voted.map(p => p.vote).filter(v => v !== '?');
 
   const counts = {};
   for (const v of valueVotes) counts[v] = (counts[v] || 0) + 1;
@@ -211,7 +308,7 @@ function computeConsensus(room) {
   if (maxCount < 2) return { state: 'none', values: [], maxCount };
 
   const topValues = values.filter(v => counts[v] === maxCount);
-  if (topValues.length === 1 && maxCount === voters.length) {
+  if (topValues.length === 1 && maxCount === voted.length) {
     return { state: 'unanimous', values: topValues, maxCount };
   }
   if (topValues.length === 1) {
@@ -229,6 +326,7 @@ function newRound(room, playerId) {
   // with a spurious blank reveal.
   cancelCountdown(room);
   room.revealed = false;
+  room.topic = '';
   for (const p of room.players.values()) {
     p.vote = null;
   }
@@ -240,8 +338,9 @@ function newRound(room, playerId) {
 // otherwise a long-idle discussion where everyone briefly drops would be
 // destroyed out from under players still inside their 60s reconnect grace.
 function isRoomExpired(room, now, timeoutMs) {
+  const present = [...room.players.values()].some(p => !p.away);
   return (now - room.lastActivity > timeoutMs)
-    && room.players.size === 0
+    && !present
     && room.disconnected.size === 0;
 }
 
@@ -271,6 +370,8 @@ function serializeRoom(room) {
     // including ones that join or reconnect while it is already running.
     countdownEndsAt: room.countdownEndsAt || null,
     countdownBy: room.countdownBy || null,
+    topic: room.topic || '',
+    history: room.history || [],
     players: [...room.players.entries()].map(([sid, p]) => ({
       id: sid,
       name: p.name,
@@ -278,6 +379,8 @@ function serializeRoom(room) {
       voteSeq: p.voteSeq || 0,
       isHost: p.isHost,
       color: p.color,
+      observer: !!p.observer,
+      away: !!p.away,
     })),
   };
 }
@@ -301,6 +404,9 @@ module.exports = {
   VOTING_SYSTEMS,
   NUM_COLORS,
   MAX_NAME_LEN,
+  MAX_TOPIC_LEN,
+  MAX_HISTORY,
+  MAX_PLAYERS,
   generateId,
   generateUniqueId,
   generateToken,
@@ -310,6 +416,12 @@ module.exports = {
   addPlayer,
   removePlayer,
   promoteHost,
+  claimHost,
+  markAway,
+  markBack,
+  setObserver,
+  setTopic,
+  voters,
   vote,
   clearVote,
   reveal,

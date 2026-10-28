@@ -9,6 +9,7 @@ const { chromium } = require('playwright');
 const PORT = 3987;
 process.env.PORT = String(PORT);
 process.env.COUNTDOWN_MS = '2200'; // spans ~3 displayed seconds so the strobe check is meaningful
+process.env.POINTER_STATE_FILE = ''; // never write a snapshot from a test run
 const SHOTS = os.tmpdir();
 
 const results = [];
@@ -22,7 +23,7 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   const server = require(path.join(__dirname, '..', 'server.js'));
   await sleep(300);
   const base = `http://localhost:${PORT}`;
-  const browser = await chromium.launch();
+  const browser = await chromium.launch({ executablePath: process.env.PW_CHROMIUM || undefined });
   const errors = { host: [], guest: [] };
 
   const host = await (await browser.newContext()).newPage();
@@ -118,6 +119,44 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
     await guest.evaluate(() => document.getElementById('landing').classList.contains('active')));
   await host.waitForFunction(() => state.room && state.room.players.length === 1, { timeout: 5000 }).catch(() => {});
   check('back leaves the room server-side', (await host.evaluate(() => state.room.players.length)) === 1);
+
+  // Attribute XSS: a name with a quote must not break out of title="" in the
+  // result chips (review finding: escapeHtml left quotes as-is).
+  const mallory = await (await browser.newContext()).newPage();
+  mallory.on('pageerror', e => errors.guest.push(e.message));
+  await mallory.goto(`${base}/${code}`);
+  await mallory.waitForSelector('#join-overlay:not(.hidden)', { timeout: 5000 });
+  await mallory.fill('#join-player-name', '" onmouseover="window.__pwn=1" x="');
+  await mallory.click('#btn-join-game');
+  await mallory.waitForFunction(() => document.getElementById('app').classList.contains('active'), { timeout: 5000 });
+  await mallory.click('.hand-card[data-value="M"]');
+  await host.click('.hand-card[data-value="L"]');
+  await host.waitForFunction(() => state.room.players.every(p => p.vote), { timeout: 5000 });
+  await host.click('.btn-reveal');
+  await host.waitForSelector('#round-stats .rs-chip', { timeout: 6000 });
+  for (const chip of await host.locator('#round-stats .rs-chip').all()) await chip.hover();
+  check('a quote in a name cannot add an event handler',
+    (await host.evaluate(() => !document.querySelector('[onmouseover]') && window.__pwn === undefined)));
+  await mallory.close();
+
+  // Watch only on, then off: the hand must come back (review finding: a stale
+  // render key skipped the rebuild).
+  await host.click('.btn-new-round');
+  await host.evaluate(() => setObserver(true));
+  await host.waitForSelector('#hand-cards .hand-message', { timeout: 5000 });
+  await host.evaluate(() => setObserver(false));
+  await host.waitForSelector('#hand-cards .hand-card', { timeout: 5000 }).catch(() => {});
+  check('hand comes back after watch-only is turned off', (await host.locator('#hand-cards .hand-card').count()) > 0);
+
+  // Back while the "Switch rooms?" dialog is open: the dialog closes and the
+  // user stays in the room (review finding: Stay then read a null room).
+  await host.evaluate(() => navigate('/zzzzz'));
+  await host.waitForSelector('#confirm-overlay:not(.hidden)', { timeout: 5000 });
+  await host.goBack();
+  await sleep(500);
+  check('Back closes the switch dialog and keeps the room',
+    (await host.evaluate(() => document.getElementById('confirm-overlay').classList.contains('hidden') && state.room?.id)) === code &&
+    new URL(host.url()).pathname === `/${code}`);
 
   check('no host page errors', errors.host.length === 0, errors.host.join(' | '));
   check('no guest page errors', errors.guest.length === 0, errors.guest.join(' | '));

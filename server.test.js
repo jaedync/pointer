@@ -79,6 +79,7 @@ async function startServer() {
       tempServer.close(() => {
         process.env.PORT = port;
         process.env.COUNTDOWN_MS = '0'; // instant reveal for tests
+        process.env.POINTER_STATE_FILE = ''; // no snapshot file from the shared server
         delete require.cache[require.resolve('./server')];
         delete require.cache[require.resolve('./room')];
         server = require('./server');
@@ -159,6 +160,18 @@ describe('Server Integration', () => {
   // ─── Join Room ─────────────────────────────────────────────────────────
 
   describe('join-room', () => {
+    it('refuses a join when the room is full, with a clear error', async () => {
+      const { MAX_PLAYERS } = require('./room');
+      const { client: host, roomId } = await createRoom('Full', 'Host', 'fib');
+      const guests = [];
+      for (let i = 1; i < MAX_PLAYERS; i++) guests.push((await joinRoom(roomId, `G${i}`)).client);
+      const late = await connect();
+      late.send({ type: 'join-room', roomId, playerName: 'Late' });
+      const err = await late.waitFor('error');
+      assert.match(err.message, /full/);
+      for (const c of [host, late, ...guests]) await c.close();
+    });
+
     it('second player joins, both see updated state', async () => {
       const { client: alice, roomId } = await createRoom('Join', 'Alice', 'tshirt');
       const { client: bob } = await joinRoom(roomId, 'Bob');
@@ -457,16 +470,88 @@ describe('Server Integration', () => {
   // ─── Disconnect / Reconnect ────────────────────────────────────────────
 
   describe('disconnect', () => {
-    it('removes player on disconnect', async () => {
+    it('keeps the seat of a disconnected player and marks it away', async () => {
       const { client: alice, roomId } = await createRoom('DC', 'Alice', 'tshirt');
       const { client: bob } = await joinRoom(roomId, 'Bob');
       await alice.waitFor('room-state');
 
       await bob.close();
       const state = await alice.waitFor('room-state');
-      assert.equal(state.room.players.length, 1);
-      assert.equal(state.room.players[0].name, 'Alice');
+      assert.equal(state.room.players.length, 2);
+      assert.deepEqual(state.room.players.map(p => [p.name, p.away]), [['Alice', false], ['Bob', true]]);
 
+      await alice.close();
+    });
+
+    it('the host keeps the role (and seat order) across a reload', async () => {
+      const { client: alice, roomId, playerId: aliceId, token: aliceToken } = await createRoom('Reload', 'Alice', 'tshirt');
+      const { client: bob } = await joinRoom(roomId, 'Bob');
+      await alice.waitFor('room-state');
+
+      await alice.close();
+      const away = await bob.waitFor('room-state', m => m.room.players.some(p => p.away));
+      assert.equal(away.room.players.find(p => p.isHost).name, 'Alice', 'no hand-off while the host is away');
+
+      const alice2 = await connect();
+      alice2.send({ type: 'join-room', roomId, playerName: 'Alice', playerId: aliceId, token: aliceToken });
+      await alice2.waitFor('joined');
+      const back = await bob.waitFor('room-state', m => m.room.players.every(p => !p.away));
+      assert.deepEqual(back.room.players.map(p => [p.name, p.isHost]), [['Alice', true], ['Bob', false]]);
+      await alice2.close();
+      await bob.close();
+    });
+
+    it('a present player can claim host only while the host is away', async () => {
+      const { client: alice, roomId } = await createRoom('Claim', 'Alice', 'tshirt');
+      const { client: bob } = await joinRoom(roomId, 'Bob');
+      await alice.waitFor('room-state');
+
+      bob.send({ type: 'claim-host' });
+      bob.send({ type: 'set-topic', topic: 'probe' }); // non-host: ignored, but flushes ordering
+      await new Promise(r => setTimeout(r, 50));
+      await alice.close();
+      await bob.waitFor('room-state', m => m.room.players.some(p => p.away));
+      bob.send({ type: 'claim-host' });
+      const state = await bob.waitFor('room-state', m => m.room.players.find(p => p.name === 'Bob').isHost);
+      assert.equal(state.room.players.filter(p => p.isHost).length, 1);
+      await bob.close();
+    });
+  });
+
+  describe('observer, topic, history', () => {
+    it('an observer cannot vote and is excluded from consensus', async () => {
+      const { client: alice, roomId } = await createRoom('Obs', 'Alice', 'fib');
+      const c = await connect();
+      c.send({ type: 'join-room', roomId, playerName: 'Olu', observer: true });
+      await c.waitFor('joined');
+      const st = await alice.waitFor('room-state', m => m.room.players.length === 2);
+      assert.equal(st.room.players.find(p => p.name === 'Olu').observer, true);
+
+      c.send({ type: 'vote', value: '8' });
+      alice.send({ type: 'vote', value: '5' });
+      await alice.waitFor('room-state', m => m.room.players.find(p => p.name === 'Alice').vote === '5');
+      alice.send({ type: 'reveal' });
+      const rev = await alice.waitFor('room-state', m => m.room.revealed);
+      assert.equal(rev.room.players.find(p => p.name === 'Olu').vote, null);
+      assert.equal(rev.room.history[0].voters, 1);
+      await alice.close();
+      await c.close();
+    });
+
+    it('host sets the topic; it is stored in history and cleared by a new round', async () => {
+      const { client: alice } = await createRoom('Topic', 'Alice', 'fib');
+      alice.send({ type: 'set-topic', topic: '  Login   page  ' });
+      const t = await alice.waitFor('room-state', m => m.room.topic);
+      assert.equal(t.room.topic, 'Login page');
+      alice.send({ type: 'vote', value: '3' });
+      alice.send({ type: 'reveal' });
+      const rev = await alice.waitFor('room-state', m => m.room.revealed);
+      assert.equal(rev.room.history[0].topic, 'Login page');
+      assert.deepEqual(rev.room.history[0].counts, [{ value: '3', n: 1 }]);
+      alice.send({ type: 'new-round' });
+      const nr = await alice.waitFor('room-state', m => !m.room.revealed && m.room.history.length === 1);
+      assert.equal(nr.room.topic, '');
+      assert.equal(nr.room.history.length, 1);
       await alice.close();
     });
 
@@ -536,6 +621,19 @@ describe('Server Integration', () => {
   // ─── Security / robustness hardening (pre-push audit) ──────────────────────
 
   describe('static file serving', () => {
+    it('serves a cache-busted asset (?v=) with its real type', async () => {
+      const res = await fetch(`${baseUrl}/render.js?v=2`);
+      assert.equal(res.status, 200);
+      assert.match(res.headers.get('content-type'), /javascript/);
+      assert.match(await res.text(), /computeRoundStats/);
+    });
+
+    it('serves the Open Graph image', async () => {
+      const res = await fetch(`${baseUrl}/og.png`);
+      assert.equal(res.status, 200);
+      assert.equal(res.headers.get('content-type'), 'image/png');
+    });
+
     it('does not serve files outside public/ via path traversal', async () => {
       // Raw socket so the literal "/../server.js" target reaches the server
       // un-normalized (fetch/browsers would collapse the .. client-side).
@@ -552,6 +650,14 @@ describe('Server Integration', () => {
       const statusLine = body.split('\r\n')[0];
       assert.ok(!statusLine.includes('200'), `expected non-200, got: ${statusLine}`);
       assert.ok(!body.includes('WebSocketServer'), 'server source must not leak');
+    });
+
+    it('rejects a NUL byte in the path (fs would throw synchronously)', async () => {
+      const { resolveStaticPath } = require('./server');
+      assert.equal(resolveStaticPath('/%00.js'), null);
+      const res = await fetch(`${baseUrl}/%00.js`);
+      assert.equal(res.status, 403);
+      assert.equal((await fetch(`${baseUrl}/render.js`)).status, 200, 'server still up');
     });
 
     it('resolveStaticPath returns null on malformed percent-encoding (no throw → no crash)', () => {
@@ -661,7 +767,7 @@ describe('Server Integration', () => {
       alice.send({ type: 'vote', value: 'L' });
       await bob.waitFor('room-state');
 
-      await alice.close(); // Alice (host) drops; Bob should be promoted
+      await alice.close(); // Alice (host) drops; her seat stays, away
       await bob.waitFor('room-state');
 
       // A stranger shows up claiming the name "Alice" but with no token.
@@ -672,8 +778,9 @@ describe('Server Integration', () => {
       const me = state.room.players.find(p => p.id === joined.playerId);
       assert.equal(me.isHost, false, 'stranger must NOT inherit host');
       assert.equal(me.vote, null, 'stranger must NOT inherit the vote');
-      const bobP = state.room.players.find(p => p.name === 'Bob');
-      assert.equal(bobP.isHost, true, 'Bob stays host');
+      const hosts = state.room.players.filter(p => p.isHost);
+      assert.equal(hosts.length, 1, 'exactly one host');
+      assert.equal(hosts[0].id === joined.playerId, false, 'stranger is not the host');
       await bob.close();
       await stranger.close();
     });
@@ -699,21 +806,23 @@ describe('Server Integration', () => {
       await bob2.close();
     });
 
-    it('the original host reconnecting does not create a second host', async () => {
+    it('the original host reconnecting after a claim does not create a second host', async () => {
       const { client: alice, roomId, playerId: aliceId, token: aliceToken } = await createRoom('TwoHost', 'Alice', 'tshirt');
       const { client: bob } = await joinRoom(roomId, 'Bob');
       await alice.waitFor('room-state');
 
-      await alice.close(); // host drops → Bob promoted
-      await bob.waitFor('room-state', m => m.room.players.length === 1);
+      await alice.close(); // host drops → away; Bob claims the role
+      await bob.waitFor('room-state', m => m.room.players.some(p => p.away));
+      bob.send({ type: 'claim-host' });
+      await bob.waitFor('room-state', m => m.room.players.find(p => p.name === 'Bob').isHost);
 
       const alice2 = await connect();
       alice2.send({ type: 'join-room', roomId, playerName: 'Alice', playerId: aliceId, token: aliceToken });
       await alice2.waitFor('joined');
-      const state = await alice2.waitFor('room-state', m => m.room.players.length === 2);
+      const state = await alice2.waitFor('room-state', m => m.room.players.every(p => !p.away));
       const hosts = state.room.players.filter(p => p.isHost);
       assert.equal(hosts.length, 1, 'exactly one host after host reconnect');
-      assert.equal(hosts[0].name, 'Bob', 'interim host keeps the role');
+      assert.equal(hosts[0].name, 'Bob', 'claimed host keeps the role');
       await bob.close();
       await alice2.close();
     });

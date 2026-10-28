@@ -200,3 +200,51 @@ describe('computeRevealDelays (2D positions)', () => {
     assert.deepEqual(computeRevealDelays(3, 250), [250, 0, 250]);
   });
 });
+
+describe('computeRoundStats', () => {
+  const { computeRoundStats } = require('./public/render.js');
+  const fib = ['0', '1', '2', '3', '5', '8', '13', '21', '?'];
+
+  it('counts in deck order with names, average and nearest card', () => {
+    const s = computeRoundStats([
+      { name: 'A', vote: '5' }, { name: 'B', vote: '3' }, { name: 'C', vote: '5' },
+      { name: 'D', vote: '?' }, { name: 'E', vote: null },
+    ], fib);
+    assert.equal(s.voted, 4);
+    assert.deepEqual(s.counts.map(c => [c.value, c.n]), [['3', 1], ['5', 2], ['?', 1]]);
+    assert.equal(s.average, 4.3);
+    assert.equal(s.nearest, '5');
+    assert.deepEqual(s.low, { value: '3', names: ['B'] });
+    assert.deepEqual(s.high, { value: '5', names: ['A', 'C'] });
+    assert.equal(s.spread, 1);
+  });
+
+  it('has no average for t-shirt sizes and no low/high for one value', () => {
+    const s = computeRoundStats([{ name: 'A', vote: 'M' }, { name: 'B', vote: 'M' }], ['XS', 'S', 'M', 'L', 'XL', '?']);
+    assert.equal(s.average, null);
+    assert.equal(s.low, null);
+    assert.equal(s.spread, 0);
+  });
+
+  it('handles no votes', () => {
+    const s = computeRoundStats([], fib);
+    assert.equal(s.voted, 0);
+    assert.deepEqual(s.counts, []);
+    assert.equal(s.average, null);
+  });
+});
+
+describe('fanLayout', () => {
+  const { fanLayout } = require('./public/render.js');
+  for (const n of [1, 5, 6, 7, 9]) {
+    it(`is symmetric for ${n} cards`, () => {
+      const f = fanLayout(n);
+      assert.equal(f.length, n);
+      for (let i = 0; i < n; i++) {
+        assert.equal(f[i].rot + f[n - 1 - i].rot, 0);
+        assert.equal(f[i].lift, f[n - 1 - i].lift);
+      }
+      assert.ok(Math.abs(f[0].rot) <= 20);
+    });
+  }
+});

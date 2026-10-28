@@ -2,8 +2,18 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Pointer · Scrum Poker</title>
+<meta name="description" content="Free, fast scrum poker for your team. Create a room, share the link, vote privately, reveal together. No signup.">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Pointer">
+<meta property="og:title" content="Pointer · Scrum poker for your team">
+<meta property="og:description" content="Create a room, share the link, vote privately, reveal together. Free, no signup.">
+<meta property="og:image" content="https://pointer.jaedyn.me/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Pointer: a fan of colored estimation cards">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
@@ -50,7 +60,14 @@
     --accent-glow: rgba(212,133,106,0.25);
     --text: #3a2e28;
     --text-secondary: #7a6e65;
-    --text-muted: #b5a898;
+    /* Muted text must pass WCAG AA (4.5:1) on white and on --bg; the old
+       #b5a898 (2.3:1) survives as --text-faint for decoration only. */
+    --text-muted: #76675a;
+    --text-faint: #b5a898;
+    /* Filled buttons and accent text on light surfaces: white on --accent is
+       2.9:1, on --accent-ink 4.5:1. --accent stays for dots, glows, rings. */
+    --accent-ink: #bd5937;
+    --accent-ink-hover: #a94e2f;
     --border: #e8ddd4;
     --card-face: #fffbf8;
     --waiting: #d4c4b8;
@@ -58,18 +75,20 @@
 
   /* Deterministic player color palette — 12 distinct, warm-friendly colors */
   :root {
-    --pc-0: #d4856a; /* terracotta */
-    --pc-1: #6aad8c; /* sage */
-    --pc-2: #7b8fc7; /* periwinkle */
-    --pc-3: #c9a84c; /* gold */
-    --pc-4: #b07cc7; /* lavender */
+    /* Same hues as before, deepened just enough that white initials reach
+       3.3:1 (WCAG large text). Keep in sync with COLORS in the script. */
+    --pc-0: #ce7556; /* terracotta */
+    --pc-1: #559b79; /* sage */
+    --pc-2: #778cc5; /* periwinkle */
+    --pc-3: #a88933; /* gold */
+    --pc-4: #ae78c5; /* lavender */
     --pc-5: #c76a6a; /* rose */
-    --pc-6: #6ab5c7; /* sky */
-    --pc-7: #8aad5c; /* olive */
-    --pc-8: #c78a5c; /* amber */
+    --pc-6: #4197ac; /* sky */
+    --pc-7: #76974c; /* olive */
+    --pc-8: #c17e4b; /* amber */
     --pc-9: #6a7ec7; /* slate blue */
     --pc-10: #c76a9a; /* magenta */
-    --pc-11: #5cad9a; /* teal */
+    --pc-11: #4e9a88; /* teal */
   }
 
   body {
@@ -77,9 +96,18 @@
     background: var(--bg);
     color: var(--text);
     height: 100vh;
+    height: 100dvh; /* iOS: 100vh is taller than the visible area */
     display: flex;
     flex-direction: column;
     overflow: hidden;
+  }
+
+  button { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
+  .header :focus-visible, .landing :focus-visible { outline-color: var(--accent); }
+  .visually-hidden {
+    position: absolute !important; width: 1px; height: 1px; overflow: hidden;
+    clip: rect(0 0 0 0); white-space: nowrap;
   }
 
   /* ═══════════════════════════════════════
@@ -91,17 +119,24 @@
     background: rgba(46, 35, 32, 0.5);
     backdrop-filter: blur(6px);
     opacity: 1;
-    transition: opacity 0.3s;
+    visibility: visible;
+    transition: opacity 0.3s, visibility 0s;
   }
   .lobby-overlay.hidden {
     opacity: 0;
     pointer-events: none;
+    /* visibility (delayed until the fade ends) also removes the hidden
+       dialog's controls from the Tab order. */
+    visibility: hidden;
+    transition: opacity 0.3s, visibility 0s 0.3s;
   }
 
   .lobby-card {
     position: relative;
     z-index: 1;
     width: 440px;
+    max-height: calc(100dvh - 32px);
+    overflow-y: auto;
     background: var(--surface);
     border-radius: 24px;
     box-shadow: 0 16px 64px rgba(0,0,0,0.18), 0 2px 8px rgba(0,0,0,0.08);
@@ -151,7 +186,7 @@
     border-radius: 50%;
   }
   .lobby-subtitle {
-    font-size: 14px; color: var(--text-muted);
+    font-size: 14px; font-weight: 500; color: var(--text-muted);
   }
 
   .lobby-body {
@@ -179,6 +214,13 @@
     transition: border-color 0.15s;
   }
   .field-input:focus { border-color: var(--accent); }
+  .field-input:focus-visible, .field-select:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-glow); }
+  .field-optional { font-weight: 500; text-transform: none; letter-spacing: 0; }
+  .field-check {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 14px; color: var(--text-secondary); cursor: pointer;
+  }
+  .field-check input { width: 18px; height: 18px; accent-color: var(--accent-ink); }
   .field-input::placeholder { color: var(--text-muted); }
 
   .field-select-wrap {
@@ -218,7 +260,7 @@
     background: var(--accent-soft);
     font-family: 'Recursive', sans-serif;
     font-size: 13px; font-weight: 600;
-    color: var(--accent);
+    color: var(--accent-ink-hover);
     font-variation-settings: 'CASL' 0.3;
   }
 
@@ -227,7 +269,7 @@
     padding: 14px;
     border-radius: 14px;
     border: none;
-    background: var(--accent);
+    background: var(--accent-ink);
     color: #fff;
     font-family: 'Karla', sans-serif;
     font-size: 16px; font-weight: 800;
@@ -243,6 +285,13 @@
     background: linear-gradient(135deg, rgba(255,255,255,0.15), transparent);
     pointer-events: none;
   }
+  .lobby-btn-secondary {
+    background: var(--surface); color: var(--text);
+    border: 2px solid var(--border); box-shadow: none;
+  }
+  .lobby-btn-secondary::before { display: none; }
+  .lobby-btn-row { display: flex; gap: 12px; }
+  .lobby-text { font-size: 14px; line-height: 1.5; color: var(--text-secondary); margin: 0; }
   .lobby-btn:hover {
     transform: translateY(-2px);
     box-shadow: 0 6px 24px rgba(212,133,106,0.35);
@@ -310,11 +359,38 @@
   .btn-leave {
     padding: 6px 14px; border-radius: 7px;
     border: 1px solid #5a4a3e; background: transparent;
-    color: #8a7a6e; font-family: 'Instrument Sans', sans-serif;
+    color: #b3a294; font-family: 'Instrument Sans', sans-serif;
     font-size: 12px; font-weight: 600;
     cursor: pointer; transition: all 0.15s;
   }
-  .btn-leave:hover { border-color: #c76a6a; color: #c76a6a; }
+  .btn-leave:hover { border-color: #e08a8a; color: #e08a8a; }
+  /* Players drawer toggle: phones only (the sidebar is a drawer there). */
+  .btn-players {
+    display: none; align-items: center; gap: 6px;
+    padding: 6px 10px; border-radius: 7px;
+    border: 1px solid #5a4a3e; background: transparent;
+    color: #e0d2c6; font-size: 12px; font-weight: 700; cursor: pointer;
+  }
+  .btn-players svg { width: 16px; height: 16px; }
+
+  /* Connection lost: shown after a short delay so quick blips stay silent. */
+  .conn-banner {
+    position: fixed; top: 60px; left: 50%; z-index: 85;
+    transform: translateX(-50%) translateY(-8px);
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 18px; border-radius: 999px;
+    background: var(--header-bg); color: var(--header-text);
+    font-size: 13px; font-weight: 600;
+    box-shadow: 0 6px 24px rgba(0,0,0,0.2);
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.2s, transform 0.2s;
+  }
+  .conn-banner.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  .conn-dot {
+    width: 8px; height: 8px; border-radius: 50%; background: var(--accent);
+    animation: connPulse 1.2s ease-in-out infinite;
+  }
+  @keyframes connPulse { 50% { opacity: 0.25; } }
 
   /* Countdown overlay — positioned over the stage without displacing content */
   .countdown-overlay {
@@ -344,7 +420,7 @@
   .countdown-label {
     margin-top: 12px;
     font-size: 14px; font-weight: 600;
-    color: var(--text-muted);
+    color: var(--text-secondary);
   }
   @keyframes countdownPop {
     0% { transform: scale(2); opacity: 0; }
@@ -401,8 +477,13 @@
     padding: 10px 12px; border-radius: 12px;
     transition: background 0.15s; position: relative;
   }
-  .player-row:hover { background: #faf5f0; }
+  @media (hover: hover) { .player-row:hover { background: #faf5f0; } }
   .player-row.is-you { background: var(--accent-soft); }
+  .player-row.is-away .player-avatar, .player-row.is-away .player-name-text { opacity: 0.45; }
+  .player-vote-indicator.observing {
+    color: var(--text-muted);
+  }
+  .player-vote-indicator.observing svg { width: 18px; height: 18px; }
 
   .player-avatar {
     width: 38px; height: 38px; border-radius: 12px;
@@ -455,6 +536,36 @@
 
   .players-divider { height: 1px; background: var(--border); margin: 10px 0; }
 
+  .observer-toggle {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 12px; font-size: 13px; color: var(--text-secondary);
+    cursor: pointer;
+  }
+  .observer-toggle input { width: 16px; height: 16px; accent-color: var(--accent-ink); }
+
+  /* ─── Round history ─── */
+  .history { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }
+  .history:empty { display: none; }
+  .history-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 7px 12px; border-radius: 10px; font-size: 13px;
+  }
+  .history-round {
+    font-family: 'Recursive', sans-serif; font-size: 11px; font-weight: 700;
+    color: var(--text-muted); width: 22px; flex-shrink: 0;
+  }
+  .history-topic {
+    flex: 1; min-width: 0; color: var(--text);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .history-topic.untitled { color: var(--text-muted); }
+  .history-result {
+    font-family: 'Recursive', sans-serif; font-weight: 800; font-size: 13px;
+    padding: 2px 8px; border-radius: 6px; flex-shrink: 0;
+    background: #f3ebe4; color: var(--text);
+  }
+  .history-result.unanimous { background: #e3f1e9; color: #2f6b4f; }
+
   /* ─── Consensus Tracker ─── */
   .consensus-tracker {
     margin-top: auto;
@@ -494,7 +605,7 @@
   .consensus-ring .ring-num {
     font-family: 'Recursive', sans-serif;
     font-size: 16px; font-weight: 800;
-    color: var(--accent);
+    color: var(--accent-ink);
     font-variation-settings: 'CASL' 0.3;
     line-height: 1;
   }
@@ -528,10 +639,45 @@
     overflow: hidden;
   }
   .stage-top {
-    display: flex; justify-content: center;
+    display: flex; flex-direction: column; align-items: center; gap: 12px;
     z-index: 1;
     flex-shrink: 0;
   }
+  .topic-input, .topic-text {
+    width: min(560px, 100%);
+    font-family: 'Karla', sans-serif; font-size: 20px; font-weight: 700;
+    color: var(--text); text-align: center;
+    letter-spacing: -0.01em;
+  }
+  .topic-input {
+    border: none; border-bottom: 2px dashed transparent; background: transparent;
+    padding: 4px 8px; border-radius: 0; outline: none;
+    transition: border-color 0.15s;
+  }
+  .topic-input::placeholder { color: var(--text-faint); }
+  @media (hover: hover) { .topic-input:hover { border-bottom-color: var(--border); } }
+  .topic-input:focus { border-bottom-color: var(--accent); }
+  .topic-text:empty { display: none; }
+
+  /* Result summary under the pill: one chip per value (deck order). */
+  .round-stats {
+    display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 8px;
+    max-width: 640px;
+  }
+  .round-stats:empty { display: none; }
+  .rs-chip {
+    display: inline-flex; align-items: baseline; gap: 5px;
+    padding: 4px 10px; border-radius: 8px;
+    background: var(--surface); border: 1px solid var(--border);
+    font-size: 13px; color: var(--text-secondary);
+  }
+  .rs-chip b {
+    font-family: 'Recursive', sans-serif; font-weight: 800; font-size: 15px;
+    color: var(--text); font-variation-settings: 'CASL' 0.3;
+  }
+  .rs-chip.rs-avg { background: transparent; border-style: dashed; }
+  .rs-note { width: 100%; text-align: center; font-size: 13px; color: var(--text-secondary); }
+  .rs-note strong { color: var(--text); }
   .stage::before {
     content: ''; position: absolute; inset: 0;
     background-image: url("data:image/svg+xml,%3Csvg width='40' height='40' viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23d4c8ba' fill-opacity='0.07'%3E%3Ccircle cx='20' cy='20' r='1'/%3E%3C/g%3E%3C/svg%3E");
@@ -545,7 +691,7 @@
     color: var(--text-muted);
     position: relative; z-index: 1;
   }
-  .stage-status .count { color: var(--accent); }
+  .stage-status .count { color: var(--accent-ink); }
 
   .stage-cards {
     display: flex; gap: 16px;
@@ -553,6 +699,9 @@
     flex-wrap: wrap;
     align-items: center; justify-content: center;
     align-content: center;
+    /* 'safe': when the cards outgrow the area, start at the top instead of
+       overflowing both edges (the top part could not be scrolled to). */
+    align-content: safe center;
     width: 100%;
     flex: 1;
     min-height: 0;
@@ -570,6 +719,13 @@
      (which override animation:) ends up re-firing cardIn when the override
      is removed. The .is-entering class is added in makeStageCardNode and
      removed on animationend, so cardIn fires exactly once per card. */
+  .stage-card.is-away .stage-card-inner { opacity: 0.4; filter: saturate(0.4); }
+  .stage-card.is-away::after {
+    content: 'away'; position: absolute; left: 50%; bottom: -20px;
+    transform: translateX(-50%);
+    font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--text-muted);
+  }
   .stage-card.is-entering {
     opacity: 0;
     animation: cardIn 0.4s ease-out forwards;
@@ -633,7 +789,7 @@
   }
   .stage-card-front.sc-waiting::after { border-color: rgba(255,255,255,0.1); }
   .stage-card-front.sc-waiting .sc-init {
-    color: rgba(181,168,152,0.55);
+    color: rgba(130,114,93,0.6);
     font-size: 22px;
     font-weight: 700;
   }
@@ -689,7 +845,7 @@
   }
   .btn-reveal {
     padding: 14px 44px; border-radius: 14px; border: none;
-    background: var(--accent); color: #fff;
+    background: var(--accent-ink); color: #fff;
     font-family: 'Karla', sans-serif;
     font-size: 15px; font-weight: 800;
     cursor: pointer; transition: all 0.2s;
@@ -701,9 +857,12 @@
     background: linear-gradient(135deg, rgba(255,255,255,0.15), transparent);
     pointer-events: none;
   }
-  .btn-reveal:hover {
+  .btn-reveal:hover:not(:disabled) {
     transform: translateY(-2px);
     box-shadow: 0 6px 28px rgba(212,133,106,0.35);
+  }
+  .btn-reveal:disabled {
+    opacity: 0.45; cursor: not-allowed; box-shadow: none;
   }
   .btn-reveal.all-in { animation: revealPulse 2s ease-in-out infinite; }
   @keyframes revealPulse {
@@ -717,7 +876,48 @@
     font-size: 15px; font-weight: 700;
     cursor: pointer; transition: all 0.15s;
   }
-  .btn-new-round:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-new-round:hover { border-color: var(--accent-ink); color: var(--accent-ink); }
+  .host-away {
+    display: flex; flex-direction: column; align-items: center; gap: 10px;
+  }
+  .kbd-hint { font-size: 12px; color: var(--text-muted); margin-top: 8px; text-align: center; }
+  .kbd-hint kbd {
+    font-family: 'Recursive', sans-serif; font-size: 11px; font-weight: 700;
+    padding: 1px 6px; border-radius: 4px; border: 1px solid var(--border);
+    background: var(--surface); color: var(--text-secondary);
+  }
+
+  /* ─── Invite panel (host alone in the room) ─── */
+  .invite-panel {
+    display: none; z-index: 1;
+    flex-direction: column; align-items: center; gap: 14px;
+    margin: 8px auto 20px; padding: 28px 32px;
+    width: min(440px, 100%);
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 20px; box-shadow: 0 8px 32px rgba(46,35,32,0.06);
+    text-align: center;
+  }
+  .invite-panel.show { display: flex; }
+  .invite-title { font-family: 'Karla', sans-serif; font-size: 18px; font-weight: 800; }
+  .invite-code {
+    font-family: 'Recursive', sans-serif; font-weight: 800;
+    font-size: 40px; letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--accent-ink); font-variation-settings: 'CASL' 0.4;
+    background: none; border: none; cursor: pointer; padding: 0 0 0 0.18em;
+  }
+  .invite-url {
+    font-size: 13px; color: var(--text-secondary);
+    overflow-wrap: anywhere;
+  }
+  .invite-btn {
+    padding: 12px 28px; border-radius: 14px; border: none;
+    background: var(--accent-ink); color: #fff;
+    font-family: 'Karla', sans-serif; font-size: 15px; font-weight: 800;
+    cursor: pointer; transition: transform 0.2s, box-shadow 0.2s;
+    box-shadow: 0 4px 20px var(--accent-glow);
+  }
+  .invite-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 28px rgba(212,133,106,0.35); }
+  .invite-sub { font-size: 12px; color: var(--text-muted); }
 
   /* ─── Results: consensus pill ─── */
   /* Hidden state is display:none so the pill occupies no layout width while
@@ -728,14 +928,14 @@
     display: inline-flex; align-items: center; gap: 12px;
     border-radius: 999px; padding: 8px 14px 8px 22px;
   }
-  .cpill-real { background: var(--accent); box-shadow: 0 6px 20px var(--accent-glow); }
-  .cpill-good { background: #6aad8c; box-shadow: 0 6px 20px rgba(106,173,140,0.34); }
-  .cpill-none { background: var(--waiting); box-shadow: 0 6px 18px rgba(181,168,152,0.3); }
+  .cpill-real { background: var(--accent-ink); box-shadow: 0 6px 20px var(--accent-glow); }
+  .cpill-good { background: #3f8a66; box-shadow: 0 6px 20px rgba(106,173,140,0.34); }
+  .cpill-none { background: #8f8072; box-shadow: 0 6px 18px rgba(181,168,152,0.3); }
   .cpill-label {
     font-family: 'Karla', sans-serif;
     font-size: 11px; font-weight: 800;
     text-transform: uppercase; letter-spacing: 0.13em;
-    color: rgba(255,255,255,0.85);
+    color: #fff;
   }
   .cpill-val {
     font-family: 'Recursive', sans-serif;
@@ -756,6 +956,7 @@
     display: flex; align-items: center; justify-content: center;
     position: relative;
   }
+  .hand-message { font-size: 14px; color: var(--text-secondary); display: flex; align-items: center; gap: 12px; }
   .hand-label {
     position: absolute; left: 24px; top: 50%;
     font-size: 10px; font-weight: 700;
@@ -764,6 +965,7 @@
     writing-mode: vertical-rl;
     transform: translateY(-50%) rotate(180deg);
   }
+  .hand-inner { display: flex; flex-direction: column; align-items: center; }
   .hand-cards {
     display: flex; justify-content: center;
     padding: 0 40px; position: relative;
@@ -779,17 +981,12 @@
     color: var(--text-secondary);
     cursor: pointer; transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
     user-select: none; position: relative; margin: 0 -3px;
+    padding: 0;
     transform-origin: bottom center;
+    /* --rot/--lift come from renderUtils.fanLayout(deck size): a symmetric arc. */
+    transform: rotate(var(--rot, 0deg)) translateY(var(--lift, 0px));
+    -webkit-tap-highlight-color: transparent;
   }
-  .hand-card:nth-child(1) { transform: rotate(-10deg); z-index: 1; }
-  .hand-card:nth-child(2) { transform: rotate(-6deg); z-index: 2; }
-  .hand-card:nth-child(3) { transform: rotate(-2deg); z-index: 3; }
-  .hand-card:nth-child(4) { transform: rotate(2deg); z-index: 4; }
-  .hand-card:nth-child(5) { transform: rotate(6deg); z-index: 5; }
-  .hand-card:nth-child(6) { transform: rotate(10deg); z-index: 6; }
-  .hand-card:nth-child(7) { transform: rotate(14deg); z-index: 7; }
-  .hand-card:nth-child(8) { transform: rotate(18deg); z-index: 8; }
-  .hand-card:nth-child(9) { transform: rotate(22deg); z-index: 9; }
 
   /* Invisible hit area at the card's lower edge to prevent hover jitter when
      the card lifts. Anchored inside the card footprint (bottom: 0) so it does
@@ -801,24 +998,30 @@
     bottom: 0;
     height: 24px;
   }
-  .hand-card:hover {
-    border-color: var(--accent); color: var(--accent);
-    z-index: 20 !important;
-    transform: rotate(0deg) translateY(-18px) scale(1.08) !important;
-    box-shadow: 0 8px 24px var(--accent-glow);
+  @media (hover: hover) {
+    .hand-card:hover, .hand-card:focus-visible {
+      border-color: var(--accent); color: var(--accent-ink);
+      z-index: 20 !important;
+      transform: rotate(0deg) translateY(-18px) scale(1.08) !important;
+      box-shadow: 0 8px 24px var(--accent-glow);
+    }
   }
+  .hand-card:focus-visible { outline-offset: 4px; z-index: 20 !important; }
   .hand-card.picked {
-    border-color: var(--accent);
-    background: var(--accent); color: #fff;
+    border-color: var(--accent-ink);
+    background: var(--accent-ink); color: #fff;
     z-index: 20 !important;
     transform: rotate(0deg) translateY(-22px) scale(1.1) !important;
     box-shadow: 0 10px 32px rgba(212,133,106,0.35);
   }
   /* Locked hand — disable hover/click while votes are revealed */
-  .hand-locked {
+  .hand-locked, .hand-offline {
     pointer-events: none;
     opacity: 0.5;
   }
+  .hand-card:disabled { cursor: default; color: var(--text-secondary); }
+  .hand-card.picked:disabled { color: #fff; }
+  .stage-cards:focus-visible { outline-offset: -2px; border-radius: 12px; }
   .hand-locked .hand-card:hover {
     transform: none !important;
     border-color: var(--border) !important;
@@ -828,7 +1031,7 @@
 
   /* Stage hint text for non-host players */
   .stage-hint {
-    color: var(--text-muted);
+    color: var(--text-secondary);
     font-size: 13px;
     font-weight: 500;
   }
@@ -861,6 +1064,7 @@
     background: var(--header-bg);
     color: var(--header-text);
     min-height: 100vh;
+    min-height: 100dvh;
     display: flex; flex-direction: column;
     align-items: center; justify-content: center;
     position: relative; z-index: 1;
@@ -907,14 +1111,14 @@
   }
   .landing-tagline {
     font-size: 16px;
-    color: #8a7a6e;
+    color: #b3a294;
     margin-bottom: 48px;
   }
 
   /* Fanned hero cards */
   .landing-hero-cards {
     display: flex; justify-content: center;
-    margin-bottom: 48px;
+    margin-bottom: 64px;
     position: relative;
     height: 140px; width: 340px;
   }
@@ -939,15 +1143,18 @@
     border: 1.5px solid rgba(255,255,255,0.15);
     border-radius: 8px;
   }
-  .landing-hero-card:nth-child(1) { transform: translateX(-50%) rotate(-20deg); animation-delay: 0.1s; z-index: 1; }
-  .landing-hero-card:nth-child(2) { transform: translateX(-50%) rotate(-10deg); animation-delay: 0.2s; z-index: 2; }
-  .landing-hero-card:nth-child(3) { transform: translateX(-50%) rotate(0deg); animation-delay: 0.3s; z-index: 3; }
-  .landing-hero-card:nth-child(4) { transform: translateX(-50%) rotate(10deg); animation-delay: 0.4s; z-index: 4; }
-  .landing-hero-card:nth-child(5) { transform: translateX(-50%) rotate(20deg); animation-delay: 0.5s; z-index: 5; }
+  /* A real fan: each card is offset sideways and dropped along an arc, not
+     only rotated around one point (which stacked into a lopsided pile). */
+  .landing-hero-card:nth-child(1) { --t: translateX(calc(-50% - 84px)) translateY(18px) rotate(-22deg); animation-delay: 0.1s; z-index: 1; }
+  .landing-hero-card:nth-child(2) { --t: translateX(calc(-50% - 42px)) translateY(4px) rotate(-11deg); animation-delay: 0.2s; z-index: 2; }
+  .landing-hero-card:nth-child(3) { --t: translateX(-50%) rotate(0deg); animation-delay: 0.3s; z-index: 3; }
+  .landing-hero-card:nth-child(4) { --t: translateX(calc(-50% + 42px)) translateY(4px) rotate(11deg); animation-delay: 0.4s; z-index: 4; }
+  .landing-hero-card:nth-child(5) { --t: translateX(calc(-50% + 84px)) translateY(18px) rotate(22deg); animation-delay: 0.5s; z-index: 5; }
+  .landing-hero-card { transform: var(--t); }
 
   @keyframes heroCardDeal {
-    0% { opacity: 0; transform: translateX(-50%) rotate(0deg) translateY(30px) scale(0.7); }
-    100% { opacity: 1; }
+    0% { opacity: 0; transform: translateX(-50%) translateY(40px) scale(0.7); }
+    100% { opacity: 1; transform: var(--t); }
   }
 
   .landing-actions {
@@ -957,7 +1164,7 @@
   .landing-btn-primary {
     width: 100%; padding: 16px 24px;
     border-radius: 14px; border: none;
-    background: var(--accent); color: #fff;
+    background: var(--accent-ink); color: #fff;
     font-family: 'Karla', sans-serif;
     font-size: 16px; font-weight: 800;
     cursor: pointer; transition: all 0.2s;
@@ -975,7 +1182,7 @@
   }
   .landing-divider {
     display: flex; align-items: center; gap: 16px;
-    color: #6a5e54; font-size: 12px; font-weight: 600;
+    color: #a8968a; font-size: 12px; font-weight: 600;
     text-transform: uppercase; letter-spacing: 0.08em;
   }
   .landing-divider::before, .landing-divider::after {
@@ -999,7 +1206,7 @@
     transition: border-color 0.15s;
   }
   .landing-code-input::placeholder {
-    color: #6a5e54; letter-spacing: 0.05em;
+    color: #8f8072; letter-spacing: 0.05em;
     text-transform: none; font-variation-settings: 'CASL' 0;
   }
   .landing-code-input:focus { border-color: var(--accent); }
@@ -1012,13 +1219,16 @@
     font-size: 14px; font-weight: 700;
     cursor: pointer; transition: all 0.15s;
   }
+  .landing-btn-join { color: #e0d2c6; }
   .landing-btn-join:hover { border-color: var(--accent); color: var(--accent); }
 
   .landing-footer {
-    position: absolute; bottom: 24px;
-    font-size: 12px; color: #5a4e44;
+    position: absolute; bottom: 24px; padding: 0 16px;
+    font-size: 12px; color: #a8968a; text-align: center;
     z-index: 2;
   }
+  .landing-footer a { color: #e0d2c6; text-decoration: none; border-bottom: 1px solid rgba(224,210,198,0.3); }
+  .landing-footer a:hover { color: var(--accent); border-bottom-color: var(--accent); }
 
   /* ─── Toast notification ─── */
   .toast {
@@ -1042,46 +1252,106 @@
   }
 
   /* ─── Responsive: Mobile ─── */
+  .drawer-backdrop { display: none; }
   @media (max-width: 768px) {
+    .header { padding: 0 12px; gap: 8px; }
+    .header-left { gap: 10px; min-width: 0; }
+    .room-name { display: none; }
+    .header-right { gap: 6px; }
+    .invite-group { padding: 3px; gap: 2px; }
+    .room-code { min-width: 0; padding: 6px 8px; letter-spacing: 0.06em; }
+    .btn-invite { min-width: 0; padding: 6px 10px; }
+    .btn-leave { padding: 6px 10px; }
+    .btn-players { display: inline-flex; }
+
+    /* One column: the table, then the hand. (.hand { grid-column: 2 } on
+       desktop made an implicit second column here and pushed the hand and the
+       table off the screen.) The sidebar becomes a drawer. */
     .game-main {
-      grid-template-columns: 1fr;
-      grid-template-rows: auto 1fr auto;
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-rows: minmax(0, 1fr) auto;
     }
+    .hand { grid-column: 1; }
     .sidebar {
-      grid-row: auto;
-      flex-direction: row;
-      flex-wrap: wrap;
-      padding: 12px 16px;
-      border-right: none;
-      border-bottom: 1px solid var(--border);
-      gap: 8px;
-      overflow-y: visible;
+      position: fixed; z-index: 70;
+      top: 0; bottom: 0; left: 0;
+      width: min(320px, 86vw);
+      border-right: 1px solid var(--border);
+      transform: translateX(-105%);
+      transition: transform 0.25s ease-out;
+      box-shadow: 8px 0 32px rgba(0,0,0,0.15);
+      padding: calc(20px + env(safe-area-inset-top)) 16px calc(20px + env(safe-area-inset-bottom));
+      visibility: hidden;
     }
-    .sidebar-label { width: 100%; margin-bottom: 4px; }
-    .players-divider { display: none; }
-    .consensus-tracker { display: none; }
-    .hand-cards {
-      overflow-x: auto;
-      flex-wrap: nowrap;
-      padding: 8px 16px;
-      justify-content: flex-start;
+    .sidebar.open { transform: none; visibility: visible; }
+    .drawer-backdrop {
+      display: block; position: fixed; inset: 0; z-index: 65;
+      background: rgba(46,35,32,0.4);
+      opacity: 0; pointer-events: none; transition: opacity 0.25s;
     }
-    .hand-card:nth-child(n) { transform: none; }
-    .hand-card:hover {
-      transform: translateY(-8px) scale(1.06) !important;
-    }
-    .hand-card.picked {
-      transform: translateY(-10px) scale(1.08) !important;
-    }
+    .drawer-backdrop.show { opacity: 1; pointer-events: auto; }
+
+    .stage { padding: 16px 12px 12px; }
+    .stage-cards { gap: 10px; row-gap: 26px; padding: 16px 0 24px; }
     .stage-card { width: 60px; height: 84px; }
-    .stage-card-back .sc-value { font-size: 30px; }
+    .stage-card-front .sc-init { font-size: 18px; }
+    .stage-card-back .sc-value { font-size: 28px; }
     .stage-card-back .sc-name { font-size: 11px; }
-    .stage-card-back .sc-name-bar { height: 28px; }
+    .stage-card-back .sc-name-bar { height: 26px; }
+    .topic-input, .topic-text { font-size: 17px; }
+    .stage-top { gap: 8px; }
+    .cpill { padding: 5px 10px 5px 16px; gap: 10px; }
+    .cpill-val { min-width: 36px; height: 36px; font-size: 21px; }
+    .rs-note { font-size: 12px; }
+    .btn-reveal, .btn-new-round { padding: 13px 32px; }
+    .invite-panel { padding: 22px 18px; margin-bottom: 12px; }
+    .invite-code { font-size: 34px; }
+
+    .hand { padding: 10px 10px calc(12px + env(safe-area-inset-bottom)); }
+    .hand-label, .kbd-hint { display: none; }
+    .hand-cards {
+      flex-wrap: wrap; justify-content: center;
+      gap: 8px; padding: 10px 0 0;
+    }
+    .hand-card {
+      width: 52px; height: 70px; margin: 0; font-size: 18px;
+      transform: none;
+    }
+    .hand-card.picked { transform: translateY(-6px) !important; }
+
     .lobby-card { width: calc(100% - 32px); margin: 16px; }
+    .lobby-header { padding: 22px 24px 16px; }
+    .lobby-body { padding: 22px 24px 24px; gap: 18px; }
+    .landing-content { padding: 32px 24px 88px; }
     .landing-logo { font-size: 36px; }
-    .landing-hero-cards { width: 280px; height: 120px; }
+    .landing-tagline { margin-bottom: 36px; }
+    .landing-hero-cards { width: 280px; height: 120px; margin-bottom: 40px; }
     .landing-hero-card { width: 56px; height: 78px; font-size: 18px; }
+    .landing-hero-card:nth-child(1) { --t: translateX(calc(-50% - 64px)) translateY(14px) rotate(-22deg); }
+    .landing-hero-card:nth-child(2) { --t: translateX(calc(-50% - 32px)) translateY(3px) rotate(-11deg); }
+    .landing-hero-card:nth-child(4) { --t: translateX(calc(-50% + 32px)) translateY(3px) rotate(11deg); }
+    .landing-hero-card:nth-child(5) { --t: translateX(calc(-50% + 64px)) translateY(14px) rotate(22deg); }
     .landing-actions { width: 100%; max-width: 320px; }
+  }
+  .btn-leave svg { display: none; width: 16px; height: 16px; }
+  @media (max-width: 768px) {
+    .btn-leave { display: inline-flex; align-items: center; padding: 6px 8px; }
+    .btn-leave .btn-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+    .btn-leave svg { display: block; }
+  }
+  @media (max-width: 400px) {
+    .logo { font-size: 15px; gap: 6px; }
+  }
+
+  /* Respect the OS "reduce motion" setting: keep state changes, drop movement. */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      animation-delay: 0ms !important;
+      transition-duration: 0.01ms !important;
+      transition-delay: 0ms !important;
+    }
   }
 </style>
 </head>
@@ -1107,13 +1377,13 @@
       <button class="landing-btn-primary" onclick="showLobbyModal()">Start a new game</button>
       <div class="landing-divider">or join one</div>
       <div class="landing-join-row">
-        <input class="landing-code-input" id="landing-room-code" type="text" placeholder="Room code" maxlength="5" onkeydown="if(event.key==='Enter') joinFromLanding()">
+        <input class="landing-code-input" id="landing-room-code" type="text" placeholder="Room code" maxlength="5" aria-label="Room code" autocomplete="off" autocapitalize="characters" spellcheck="false" onkeydown="if(event.key==='Enter') joinFromLanding()">
         <button class="landing-btn-join" onclick="joinFromLanding()">Join</button>
       </div>
     </div>
   </div>
 
-  <div class="landing-footer">Free forever · No accounts · No tracking</div>
+  <div class="landing-footer">Free forever · No accounts · No tracking · Made by <a href="https://jaedyn.me">jaedyn.me</a></div>
 </div>
 
 <!-- ═══════════════════════════════════════
@@ -1122,23 +1392,34 @@
 <div id="app">
   <div class="header">
     <div class="header-left">
+      <button class="btn-players" id="btn-players" onclick="toggleDrawer()" aria-controls="sidebar" aria-expanded="false" aria-label="Players">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M16 4.8a3.3 3.3 0 0 1 0 6.4M18 14.8c1.9.7 3 2.4 3.5 5.2"/></svg>
+        <span id="btn-players-count">0</span>
+      </button>
       <div class="logo">Pointer<span class="logo-dot"></span></div>
-      <span class="room-name" id="room-name-display">Waiting...</span>
+      <span class="room-name" id="room-name-display">Waiting…</span>
     </div>
     <div class="header-right">
       <div class="invite-group">
-        <button class="room-code" id="room-code-display" onclick="copyRoomCode()" title="Click to copy room code">—</button>
-        <button class="btn-invite" id="btn-copy-link" onclick="copyInviteLink()">Copy link</button>
+        <button class="room-code" id="room-code-display" onclick="copyRoomCode()" title="Copy room code" aria-label="Room code, select to copy">—</button>
+        <button class="btn-invite" id="btn-copy-link" onclick="copyInviteLink(event)">Copy link</button>
       </div>
-      <button class="btn-leave" onclick="leaveRoom()">Leave</button>
+      <button class="btn-leave" onclick="leaveRoom()" title="Leave room">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4"/><path d="M10 17l-5-5 5-5"/><path d="M5 12h11"/></svg>
+        <span class="btn-label">Leave</span>
+      </button>
     </div>
   </div>
 
   <div class="game-main">
-    <div class="sidebar">
+    <div class="drawer-backdrop" id="drawer-backdrop" onclick="toggleDrawer(false)"></div>
+    <aside class="sidebar" id="sidebar" aria-label="Players and rounds">
       <div class="sidebar-label" id="players-count">Players · 0</div>
       <div id="players-list"></div>
+      <label class="observer-toggle"><input type="checkbox" id="observer-toggle" onchange="setObserver(this.checked)"> Watch only (don't vote)</label>
       <div class="players-divider"></div>
+      <div class="sidebar-label" id="history-label" hidden>Rounds</div>
+      <div class="history" id="history-list"></div>
 
       <!-- Consensus Tracker -->
       <div class="consensus-tracker">
@@ -1156,32 +1437,38 @@
           </div>
         </div>
         <div class="consensus-info">
-          <div class="consensus-title">Consensus rounds</div>
+          <div class="consensus-title">Unanimous rounds</div>
           <div class="consensus-desc" id="consensus-desc">No rounds played yet</div>
         </div>
       </div>
-    </div>
+    </aside>
 
-    <div class="stage">
+    <main class="stage">
       <div class="stage-top">
-        <div class="stage-status" id="stage-status">Waiting for players...</div>
-        <div class="consensus-pill" id="consensus-pill"></div>
+        <input class="topic-input" id="topic-input" type="text" maxlength="120" placeholder="What are we estimating?" aria-label="Story being estimated" autocomplete="off" hidden>
+        <div class="topic-text" id="topic-text"></div>
+        <div class="stage-status" id="stage-status" aria-live="polite">Waiting for players…</div>
+        <div class="consensus-pill" id="consensus-pill" aria-live="polite"></div>
+        <div class="round-stats" id="round-stats"></div>
       </div>
-      <div class="stage-cards" id="stage-cards"></div>
+      <div class="stage-cards" id="stage-cards" tabindex="0" aria-label="Table"></div>
+      <div class="invite-panel" id="invite-panel">
+        <div class="invite-title">Invite your team</div>
+        <button class="invite-code" id="invite-code" onclick="copyRoomCode()" title="Copy room code">—</button>
+        <div class="invite-url" id="invite-url"></div>
+        <button class="invite-btn" id="invite-copy" onclick="copyInviteLink(event)">Copy invite link</button>
+        <div class="invite-sub">Anyone with the link can join. No accounts.</div>
+      </div>
       <div class="stage-action" id="stage-action"></div>
-    </div>
+    </main>
 
-    <div class="hand">
-      <span class="hand-label">Your hand</span>
-      <div class="hand-cards" id="hand-cards">
-        <div class="hand-card">XS</div>
-        <div class="hand-card">S</div>
-        <div class="hand-card">M</div>
-        <div class="hand-card">L</div>
-        <div class="hand-card">XL</div>
-        <div class="hand-card">?</div>
+    <section class="hand" aria-label="Your hand">
+      <span class="hand-label" aria-hidden="true">Your hand</span>
+      <div class="hand-inner">
+        <div class="hand-cards" id="hand-cards" role="group" aria-label="Your vote"></div>
+        <div class="kbd-hint" id="kbd-hint"></div>
       </div>
-    </div>
+    </section>
   </div>
 </div>
 
@@ -1190,23 +1477,23 @@
      Placed after landing + app so it paints on top
      ═══════════════════════════════════════ -->
 <div class="lobby-overlay hidden" id="lobby-overlay">
-  <div class="lobby-card">
+  <div class="lobby-card" role="dialog" aria-modal="true" aria-labelledby="lobby-title">
     <div class="lobby-header">
-      <button class="lobby-close" onclick="hideModals()">&times;</button>
+      <button class="lobby-close" onclick="hideModals()" aria-label="Close">&times;</button>
       <div class="lobby-logo">Pointer<span class="logo-dot"></span></div>
-      <div class="lobby-subtitle">Free, fast scrum poker for your team</div>
+      <h2 class="lobby-subtitle" id="lobby-title">Start a new game</h2>
     </div>
     <div class="lobby-body">
       <div class="field">
-        <label class="field-label">Game name</label>
-        <input class="field-input" id="lobby-game-name" type="text" placeholder="e.g. Sprint 42 Planning" onkeydown="if(event.key==='Enter') createGame()">
+        <label class="field-label" for="lobby-player-name">Your name</label>
+        <input class="field-input" id="lobby-player-name" type="text" maxlength="40" placeholder="How the team sees you" autocomplete="nickname" onkeydown="if(event.key==='Enter') createGame()">
       </div>
       <div class="field">
-        <label class="field-label">Your name</label>
-        <input class="field-input" id="lobby-player-name" type="text" placeholder="e.g. Your name" onkeydown="if(event.key==='Enter') createGame()">
+        <label class="field-label" for="lobby-game-name">Game name <span class="field-optional">(optional)</span></label>
+        <input class="field-input" id="lobby-game-name" type="text" maxlength="40" placeholder="Sprint 42 Planning" autocomplete="off" onkeydown="if(event.key==='Enter') createGame()">
       </div>
       <div class="field">
-        <label class="field-label">Voting system</label>
+        <label class="field-label" for="lobby-voting-system">Voting system</label>
         <div class="field-select-wrap">
           <select class="field-select" id="lobby-voting-system" onchange="updateVotingPreview()">
             <option value="tshirt" selected>T-Shirt Sizes</option>
@@ -1225,7 +1512,8 @@
           <span class="system-chip">?</span>
         </div>
       </div>
-      <button class="lobby-btn" id="btn-create-game" onclick="createGame()">Create Game</button>
+      <label class="field-check"><input type="checkbox" id="lobby-observer"> I'm only facilitating (don't give me cards)</label>
+      <button class="lobby-btn" id="btn-create-game" onclick="createGame()">Create game</button>
     </div>
   </div>
 </div>
@@ -1234,19 +1522,20 @@
      JOIN MODAL (Join existing game)
      ═══════════════════════════════════════ -->
 <div class="lobby-overlay hidden" id="join-overlay">
-  <div class="lobby-card">
+  <div class="lobby-card" role="dialog" aria-modal="true" aria-labelledby="join-title">
     <div class="lobby-header">
-      <button class="lobby-close" onclick="navigate('/')">&times;</button>
+      <button class="lobby-close" onclick="navigate('/')" aria-label="Close">&times;</button>
       <div class="lobby-logo">Pointer<span class="logo-dot"></span></div>
-      <div class="lobby-subtitle">Join a game</div>
+      <h2 class="lobby-subtitle" id="join-title">Join a game</h2>
     </div>
     <div class="lobby-body">
       <div class="field">
-        <label class="field-label">Your name</label>
-        <input class="field-input" id="join-player-name" type="text" placeholder="e.g. Your name" onkeydown="if(event.key==='Enter') joinGame()">
+        <label class="field-label" for="join-player-name">Your name</label>
+        <input class="field-input" id="join-player-name" type="text" maxlength="40" placeholder="How the team sees you" autocomplete="nickname" onkeydown="if(event.key==='Enter') joinGame()">
       </div>
-      <div id="join-error" style="display:none; padding:10px 14px; border-radius:10px; background:#fdecea; color:#c0392b; font-size:13px; font-weight:500;"></div>
-      <button class="lobby-btn" id="btn-join-game" onclick="joinGame()">Join Game</button>
+      <label class="field-check"><input type="checkbox" id="join-observer"> Watch only (don't vote)</label>
+      <div id="join-error" role="alert" style="display:none; padding:10px 14px; border-radius:10px; background:#fdecea; color:#a8321f; font-size:13px; font-weight:500;"></div>
+      <button class="lobby-btn" id="btn-join-game" onclick="joinGame()">Join game</button>
     </div>
   </div>
 </div>
@@ -1257,23 +1546,42 @@
      (rooms close after 30 minutes of inactivity).
      ═══════════════════════════════════════ -->
 <div class="lobby-overlay hidden" id="room-expired-overlay">
-  <div class="lobby-card">
+  <div class="lobby-card" role="dialog" aria-modal="true" aria-labelledby="expired-title">
     <div class="lobby-header">
-      <button class="lobby-close" onclick="navigate('/')">&times;</button>
+      <button class="lobby-close" onclick="navigate('/')" aria-label="Close">&times;</button>
       <div class="lobby-logo">Pointer<span class="logo-dot"></span></div>
-      <div class="lobby-subtitle">This room has expired</div>
+      <h2 class="lobby-subtitle" id="expired-title">This room has closed</h2>
     </div>
     <div class="lobby-body">
-      <p style="font-size:14px; line-height:1.5; color:var(--text-muted); margin:0;">
-        Pointer rooms close after 30 minutes of inactivity, or once everyone has left.
-        Start a fresh game and share the new room code with your team.
+      <p class="lobby-text">
+        Rooms close after 30 minutes without activity, or when everyone leaves.
+        Start a new game and share its link with your team.
       </p>
       <button class="lobby-btn" onclick="navigate('/')">Back to home</button>
     </div>
   </div>
 </div>
 
-<script src="render.js"></script>
+<!-- App confirm dialog (replaces window.confirm) -->
+<div class="lobby-overlay hidden" id="confirm-overlay">
+  <div class="lobby-card" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-body">
+    <div class="lobby-header">
+      <h2 class="lobby-logo" id="confirm-title" style="font-size:20px"></h2>
+    </div>
+    <div class="lobby-body">
+      <p class="lobby-text" id="confirm-body"></p>
+      <div class="lobby-btn-row">
+        <button class="lobby-btn lobby-btn-secondary" id="confirm-cancel">Stay</button>
+        <button class="lobby-btn" id="confirm-ok">Leave</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="conn-banner" id="conn-banner" role="status" aria-live="polite"><span class="conn-dot"></span><span>Reconnecting…</span></div>
+
+<!-- Bump ?v= when render.js changes: it is cached for an hour, the page is not. -->
+<script src="/render.js?v=2"></script>
 <script>
   // ─── Constants ───────────────────────────────────────────────────────────────
   const VOTING_SYSTEMS = {
@@ -1282,7 +1590,9 @@
     powers: ['1', '2', '4', '8', '16', '32', '?'],
     simple: ['1', '2', '3', '4', '5', '?'],
   };
-  const COLORS = ['#d4856a','#6aad8c','#7b8fc7','#c9a84c','#b07cc7','#c76a6a','#6ab5c7','#8aad5c','#c78a5c','#6a7ec7','#c76a9a','#5cad9a'];
+  // Keep in sync with --pc-* in the stylesheet.
+  const COLORS = ['#ce7556','#559b79','#778cc5','#a88933','#ae78c5','#c76a6a','#4197ac','#76974c','#c17e4b','#6a7ec7','#c76a9a','#4e9a88'];
+  const EYE_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
 
   // ─── State + WebSocket ────────────────────────────────────────────────────────
   const state = {
@@ -1303,6 +1613,9 @@
 
   let ws = null;
   let reconnectTimer = null;
+  let reconnectAttempts = 0;
+  let bannerTimer = null;
+  const BANNER_DELAY_MS = 1200;
 
   // Per-room reconnect credentials (stable id + secret token), persisted so a
   // page reload inside the 60s window can prove identity and reclaim the seat.
@@ -1321,11 +1634,34 @@
     try { sessionStorage.removeItem('pointer-session'); } catch {}
   }
 
+  function setConnected(connected) {
+    state.connected = connected;
+    const banner = document.getElementById('conn-banner');
+    if (connected) {
+      clearTimeout(bannerTimer);
+      bannerTimer = null;
+      banner.classList.remove('show');
+    } else if (!bannerTimer && !banner.classList.contains('show')) {
+      // Only bother the user when a blip outlasts a normal reconnect. Start the
+      // delay once per outage: failed retries must not keep postponing it.
+      bannerTimer = setTimeout(() => banner.classList.add('show'), BANNER_DELAY_MS);
+    }
+    if (state.room) renderHand();
+  }
+
   function connect() {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+    if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) return;
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    ws = new WebSocket(`${protocol}//${location.host}`);
-    ws.onopen = () => {
-      state.connected = true;
+    // Each handler checks that its socket is still the current one: a late close
+    // event from an old socket must not mark a working connection offline.
+    const sock = new WebSocket(`${protocol}//${location.host}`);
+    ws = sock;
+    sock.onopen = () => {
+      if (ws !== sock) return;
+      reconnectAttempts = 0;
+      setConnected(true);
       if (state.room) {
         // In-memory reconnect after a transient WS drop: we still hold our id
         // and token, so present them to reclaim the same seat.
@@ -1334,12 +1670,23 @@
         send({ type: 'check-room', roomId: state.pendingRoomCheck });
       }
     };
-    ws.onmessage = (e) => handleMessage(JSON.parse(e.data));
-    ws.onclose = () => {
-      state.connected = false;
-      reconnectTimer = setTimeout(connect, 2000);
+    sock.onmessage = (e) => { if (ws === sock) handleMessage(JSON.parse(e.data)); };
+    sock.onclose = () => {
+      if (ws !== sock) return;
+      setConnected(false);
+      // Exponential backoff with jitter, so a server restart is not met by
+      // every client at the same instant.
+      const base = Math.min(10000, 1000 * Math.pow(2, reconnectAttempts++));
+      reconnectTimer = setTimeout(connect, base * (0.5 + Math.random() * 0.5));
     };
   }
+
+  // A phone waking up or a network coming back should not wait for backoff.
+  function reconnectNow() {
+    if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) connect();
+  }
+  window.addEventListener('online', reconnectNow);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) reconnectNow(); });
 
   function send(msg) {
     if (ws && ws.readyState === 1) ws.send(JSON.stringify(msg));
@@ -1398,7 +1745,7 @@
           // falls through to a fresh join on the server.
           const session = getSession(msg.roomId);
           if (session) {
-            send({ type: 'join-room', roomId: msg.roomId, playerName: getSavedPlayerName() || 'Player', playerId: session.playerId, token: session.token });
+            send({ type: 'join-room', roomId: msg.roomId, playerName: getSavedPlayerName() || 'Player', playerId: session.playerId, token: session.token, observer: getSavedObserver() });
           } else {
             showJoinModal(msg.roomId);
           }
@@ -1422,7 +1769,7 @@
           errEl.textContent = msg.message;
           errEl.style.display = 'block';
         } else {
-          alert(msg.message);
+          showToast(msg.message);
         }
         break;
       }
@@ -1454,10 +1801,91 @@
   }
 
   // ─── Modal Functions ──────────────────────────────────────────────────────────
+  const OVERLAY_IDS = ['lobby-overlay', 'join-overlay', 'room-expired-overlay', 'confirm-overlay'];
+  let focusBeforeModal = null;
+
+  function openOverlay() {
+    return OVERLAY_IDS.map(id => document.getElementById(id)).find(o => !o.classList.contains('hidden')) || null;
+  }
+
+  // Move focus into a dialog that just opened: the first empty text field,
+  // else the given fallback (its main button).
+  function focusDialog(overlayId, fallbackSel) {
+    const overlay = document.getElementById(overlayId);
+    if (!focusBeforeModal || !overlay.contains(focusBeforeModal)) focusBeforeModal = document.activeElement;
+    requestAnimationFrame(() => {
+      const empty = [...overlay.querySelectorAll('input[type=text]')].find(i => !i.value);
+      const target = empty || overlay.querySelector(fallbackSel) || overlay.querySelector('button');
+      if (target) target.focus();
+    });
+  }
+
+  function restoreFocus() {
+    const el = focusBeforeModal;
+    focusBeforeModal = null;
+    if (el && document.contains(el) && el.offsetParent !== null) el.focus();
+  }
+
+  // Escape closes the open dialog; Tab stays inside it.
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && document.getElementById('sidebar').classList.contains('open')) { toggleDrawer(false); return; }
+    const overlay = openOverlay();
+    if (!overlay) return;
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      if (overlay.id === 'lobby-overlay') hideModals();
+      else if (overlay.id === 'confirm-overlay') document.getElementById('confirm-cancel').click();
+      else navigate('/');
+      return;
+    }
+    if (e.key !== 'Tab') return;
+    const items = [...overlay.querySelectorAll('button, input, select, a[href]')].filter(el => !el.disabled && el.offsetParent !== null);
+    if (items.length === 0) return;
+    const first = items[0], last = items[items.length - 1];
+    if (e.shiftKey && (document.activeElement === first || !overlay.contains(document.activeElement))) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && (document.activeElement === last || !overlay.contains(document.activeElement))) { e.preventDefault(); first.focus(); }
+  });
+
+  // In-app replacement for window.confirm(). Resolves true for the OK action.
+  let pendingConfirm = null;
+  // Answer "no" to an open confirm dialog, for example when the route changes
+  // under it. The caller sees false and stops.
+  function cancelConfirm() {
+    if (pendingConfirm) pendingConfirm(false);
+  }
+
+  function askConfirm({ title, body, ok, cancel = 'Stay' }) {
+    const overlay = document.getElementById('confirm-overlay');
+    document.getElementById('confirm-title').textContent = title;
+    document.getElementById('confirm-body').textContent = body;
+    const okBtn = document.getElementById('confirm-ok');
+    const cancelBtn = document.getElementById('confirm-cancel');
+    okBtn.textContent = ok;
+    cancelBtn.textContent = cancel;
+    cancelConfirm();
+    overlay.classList.remove('hidden');
+    focusDialog('confirm-overlay', '#confirm-cancel');
+    return new Promise(resolve => {
+      const done = (result) => {
+        pendingConfirm = null;
+        overlay.classList.add('hidden');
+        okBtn.onclick = cancelBtn.onclick = overlay.onclick = null;
+        restoreFocus();
+        resolve(result);
+      };
+      pendingConfirm = done;
+      okBtn.onclick = () => done(true);
+      cancelBtn.onclick = () => done(false);
+      overlay.onclick = (e) => { if (e.target === overlay) done(false); };
+    });
+  }
+
   function showLobbyModal() {
     document.getElementById('lobby-overlay').classList.remove('hidden');
     document.getElementById('join-overlay').classList.add('hidden');
     document.getElementById('landing').style.pointerEvents = 'none';
+    document.getElementById('lobby-observer').checked = getSavedObserver();
+    focusDialog('lobby-overlay', '#btn-create-game');
   }
   function showJoinModal(roomId) {
     document.getElementById('join-overlay').classList.remove('hidden');
@@ -1465,22 +1893,27 @@
     document.getElementById('room-expired-overlay').classList.add('hidden');
     document.getElementById('join-overlay').dataset.roomId = roomId;
     document.getElementById('landing').style.pointerEvents = 'none';
+    document.getElementById('join-observer').checked = getSavedObserver();
     // Clear any error from a previous attempt.
     const errEl = document.getElementById('join-error');
     errEl.style.display = 'none';
     errEl.textContent = '';
+    focusDialog('join-overlay', '#btn-join-game');
   }
   function showRoomExpiredModal() {
     document.getElementById('room-expired-overlay').classList.remove('hidden');
     document.getElementById('join-overlay').classList.add('hidden');
     document.getElementById('lobby-overlay').classList.add('hidden');
     document.getElementById('landing').style.pointerEvents = 'none';
+    focusDialog('room-expired-overlay', '.lobby-btn');
   }
   function hideModals() {
+    const wasOpen = !!openOverlay();
     document.getElementById('lobby-overlay').classList.add('hidden');
     document.getElementById('join-overlay').classList.add('hidden');
     document.getElementById('room-expired-overlay').classList.add('hidden');
     document.getElementById('landing').style.pointerEvents = '';
+    if (wasOpen) restoreFocus();
   }
   function joinFromLanding() {
     const code = document.getElementById('landing-room-code').value.trim().toLowerCase();
@@ -1492,6 +1925,13 @@
   }
   function getSavedPlayerName() {
     try { return localStorage.getItem('pointer-player-name') || ''; } catch { return ''; }
+  }
+  // Additive key: older clients ignore it; 'pointer-player-name' is unchanged.
+  function saveObserver(on) {
+    try { localStorage.setItem('pointer-observer', on ? '1' : '0'); } catch {}
+  }
+  function getSavedObserver() {
+    try { return localStorage.getItem('pointer-observer') === '1'; } catch { return false; }
   }
   function prefillPlayerName() {
     const saved = getSavedPlayerName();
@@ -1505,18 +1945,24 @@
     const playerName = document.getElementById('lobby-player-name').value.trim();
     const votingSystem = document.getElementById('lobby-voting-system').value;
     if (!playerName) { document.getElementById('lobby-player-name').focus(); return; }
+    if (!state.connected) { showToast('Connecting… try again in a moment'); return; }
+    const observer = document.getElementById('lobby-observer').checked;
     savePlayerName(playerName);
-    send({ type: 'create-room', name: name || 'Planning Poker', playerName, votingSystem });
+    saveObserver(observer);
+    send({ type: 'create-room', name: name || 'Planning Poker', playerName, votingSystem, observer });
   }
   function joinGame() {
     const playerName = document.getElementById('join-player-name').value.trim();
     const roomId = document.getElementById('join-overlay').dataset.roomId;
     if (!playerName) { document.getElementById('join-player-name').focus(); return; }
+    if (!state.connected) { showToast('Connecting… try again in a moment'); return; }
+    const observer = document.getElementById('join-observer').checked;
     savePlayerName(playerName);
+    saveObserver(observer);
     // If we have a stored session for this room (e.g. just reloaded), present the
     // id+token so the server restores our seat instead of adding a duplicate.
     const s = getSession(roomId);
-    send({ type: 'join-room', roomId, playerName, playerId: s && s.playerId, token: s && s.token });
+    send({ type: 'join-room', roomId, playerName, playerId: s && s.playerId, token: s && s.token, observer });
   }
   function updateVotingPreview() {
     const sel = document.getElementById('lobby-voting-system');
@@ -1546,10 +1992,11 @@
     updatePageTitle();
   }
 
+  // Safe in text and in quoted attributes. The old textContent/innerHTML trick
+  // left quotes as-is, so a name like `" onmouseover="...` broke out of title="".
+  const HTML_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
   function escapeHtml(str) {
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
+    return String(str).replace(/[&<>"']/g, ch => HTML_ESCAPES[ch]);
   }
 
   function updatePageTitle() {
@@ -1562,20 +2009,29 @@
 
   function renderHeader() {
     document.getElementById('room-name-display').textContent = state.room.name;
-    document.getElementById('room-code-display').textContent = state.room.id;
-    const me = state.room.players.find(p => p.id === state.playerId);
-    if (me) {
-    }
+    const codeBtn = document.getElementById('room-code-display');
+    if (codeBtn.dataset.copied !== '1') codeBtn.textContent = state.room.id;
+    document.getElementById('btn-players-count').textContent = state.room.players.length;
+    const linkBtn = document.getElementById('btn-copy-link');
+    if (linkBtn.dataset.copied !== '1') linkBtn.textContent = canShare() ? 'Share' : 'Copy link';
+  }
+
+  function canShare() {
+    return typeof navigator.share === 'function' && matchMedia('(pointer: coarse)').matches;
   }
 
   function renderSidebar() {
     const container = document.getElementById('players-list');
     container.innerHTML = state.room.players.map(p => {
       const isMe = p.id === state.playerId;
-      const color = COLORS[p.color];
+      const color = COLORS[p.color] || COLORS[0];
       let indicator = '';
+      // A revealed vote comes first: an observer who switched after the reveal
+      // still has a vote in the result, so the sidebar must show it too.
       if (state.room.revealed && p.vote) {
         indicator = `<div class="player-vote-indicator revealed-vote"><span class="vi-val">${escapeHtml(String(p.vote))}</span></div>`;
+      } else if (p.observer) {
+        indicator = `<div class="player-vote-indicator observing" title="Watching">${EYE_SVG}</div>`;
       } else if (p.vote) {
         // Any non-null vote pre-reveal = "voted". Must be a truthy check, NOT
         // `=== 'voted'`: the server unmasks the LOCAL player's own vote to its
@@ -1585,11 +2041,12 @@
       } else {
         indicator = `<div class="player-vote-indicator waiting"></div>`;
       }
-      const roleText = isMe ? (p.isHost ? 'Host · You' : 'You') : '';
+      const roleText = [p.isHost && 'Host', isMe && 'You', p.observer && 'Watching', p.away && 'Away']
+        .filter(Boolean).join(' · ');
       const colorSwatches = isMe ? COLORS.map((c, i) => `<div class="color-swatch ${i === p.color ? 'active' : ''}" style="background:${c}" onclick="changeColor(${i});toggleColorPicker(event)"></div>`).join('') : '';
       const colorPicker = isMe ? `<div class="color-edit" onclick="toggleColorPicker(event)" title="Change color">●</div><div class="color-picker-popover" id="color-picker-popover">${colorSwatches}</div>` : '';
       return `
-        <div class="player-row ${isMe ? 'is-you' : ''}">
+        <div class="player-row ${isMe ? 'is-you' : ''} ${p.away ? 'is-away' : ''}">
           <div class="player-avatar" style="background:${color}">${escapeHtml((p.name[0] || '?').toUpperCase())}${colorPicker}</div>
           <div class="player-info">
             <div class="player-name-text">${escapeHtml(p.name)}</div>
@@ -1600,7 +2057,25 @@
       `;
     }).join('');
     document.getElementById('players-count').textContent = `Players · ${state.room.players.length}`;
+    const meNow = state.room.players.find(p => p.id === state.playerId);
+    document.getElementById('observer-toggle').checked = !!meNow?.observer;
+    renderHistory();
     renderConsensus();
+  }
+
+  function renderHistory() {
+    const history = state.room.history || [];
+    document.getElementById('history-label').hidden = history.length === 0;
+    document.getElementById('history-list').innerHTML = history.map(h => {
+      const result = h.state === 'none' || !h.values?.length ? '—' : h.values.map(v => escapeHtml(String(v))).join(' / ');
+      const avg = typeof h.average === 'number' ? ` · avg ${h.average}` : '';
+      const title = h.topic ? escapeHtml(h.topic) : 'Untitled round';
+      return `<div class="history-item" title="${escapeHtml(`${h.voters} voted${avg}`)}">
+        <span class="history-round">#${Number(h.round) || ''}</span>
+        <span class="history-topic ${h.topic ? '' : 'untitled'}">${title}</span>
+        <span class="history-result ${h.state === 'unanimous' ? 'unanimous' : ''}">${result}</span>
+      </div>`;
+    }).join('');
   }
 
   function renderConsensus() {
@@ -1610,19 +2085,20 @@
     document.getElementById('consensus-num').textContent = consensus;
     document.getElementById('consensus-den').textContent = `of ${total}`;
     document.getElementById('consensus-desc').textContent =
-      total === 0 ? 'No rounds played yet' : `${consensus} of ${total} rounds reached agreement`;
+      total === 0 ? 'No rounds played yet' : `${consensus} of ${total} ${total === 1 ? 'round' : 'rounds'} had everyone agree`;
     const pct = total === 0 ? 0 : consensus / total;
     document.getElementById('consensus-ring-fill').setAttribute('stroke-dashoffset', circumference * (1 - pct));
   }
 
   function consensusPillHTML(consensus) {
     if (!consensus || consensus.state === 'none') {
-      return `<div class="cpill cpill-none"><span class="cpill-label">No consensus</span>` +
+      return `<div class="cpill cpill-none"><span class="cpill-label">No match</span>` +
              `<span class="cpill-val cpill-dash">—</span></div>`;
     }
+    // Same words as the sidebar: only 'unanimous' counts as agreement there.
     const stateClass = consensus.state === 'unanimous' ? 'cpill-good' : 'cpill-real';
     const label = consensus.state === 'unanimous' ? 'Unanimous'
-                : consensus.state === 'split' ? 'Split' : 'Consensus';
+                : consensus.state === 'split' ? 'Split' : 'Most voted';
     const vals = consensus.values
       .map(v => `<span class="cpill-val">${escapeHtml(String(v))}</span>`)
       .join('');
@@ -1641,8 +2117,26 @@
     stopCountdown();
   }
 
+  function roundStatsHTML() {
+    const voters = state.room.players.filter(p => !p.observer || p.vote);
+    const stats = renderUtils.computeRoundStats(voters, state.room.votingSystem);
+    if (stats.voted === 0) return '';
+    const chips = stats.counts.map(c =>
+      `<span class="rs-chip" title="${escapeHtml(c.names.join(', '))}"><b>${escapeHtml(c.value)}</b>×${c.n}</span>`).join('');
+    const avg = stats.average === null ? ''
+      : `<span class="rs-chip rs-avg">avg <b>${stats.average}</b></span>`;
+    // A wide spread (2+ cards apart) is the moment to hear from both ends.
+    const who = side => side.names.length <= 2
+      ? `<strong>${side.names.map(escapeHtml).join(' and ')}</strong>`
+      : `<strong>${side.names.length} people</strong>`;
+    const note = stats.spread >= 2
+      ? `<div class="rs-note">Lowest ${escapeHtml(stats.low.value)}: ${who(stats.low)} · Highest ${escapeHtml(stats.high.value)}: ${who(stats.high)}. Hear both sides.</div>`
+      : '';
+    return chips + avg + note;
+  }
+
   function stageCardInnerHTML(p, revealed, consensus) {
-    const color = COLORS[p.color];
+    const color = COLORS[p.color] || COLORS[0];
     const isWaiting = !p.vote;
     // Escape the vote value before it reaches the DOM. The server validates
     // votes against the room's card set, so this is defense-in-depth, but it is
@@ -1665,7 +2159,7 @@
 
   function makeStageCardNode(p, revealed, consensus) {
     const wrap = document.createElement('div');
-    wrap.className = 'stage-card is-entering';
+    wrap.className = 'stage-card is-entering' + (p.away ? ' is-away' : '');
     wrap.dataset.playerId = p.id;
     const inner = document.createElement('div');
     inner.className = 'stage-card-inner';
@@ -1682,6 +2176,7 @@
   }
 
   function updateStageCardNode(node, p, revealed, consensus) {
+    node.classList.toggle('is-away', !!p.away);
     const inner = node.querySelector('.stage-card-inner');
     if (!inner) return;
     inner.innerHTML = stageCardInnerHTML(p, revealed, consensus);
@@ -1693,26 +2188,48 @@
     const status  = document.getElementById('stage-status');
     const action  = document.getElementById('stage-action');
     const pill    = document.getElementById('consensus-pill');
-    const votedCount = state.room.players.filter(p => p.vote).length;
-    const totalCount = state.room.players.length;
+    const stats   = document.getElementById('round-stats');
+    // Observers never hold cards. An away player still counts if they voted
+    // before the drop; otherwise they are not waited on.
+    const tablePlayers = state.room.players.filter(p => !p.observer || p.vote);
+    const eligible   = tablePlayers.filter(p => !p.away || p.vote);
+    const votedCount = eligible.filter(p => p.vote).length;
+    const totalCount = eligible.length;
+    const awayCount  = tablePlayers.filter(p => p.away && !p.vote).length;
     const me      = state.room.players.find(p => p.id === state.playerId);
     const isHost  = me?.isHost;
+    const host    = state.room.players.find(p => p.isHost);
     const revealed  = state.room.revealed;
     const consensus = state.room.consensus;
+
+    renderTopic(isHost);
 
     // Top zone: voting status while voting, consensus pill once revealed.
     if (revealed) {
       status.style.display = 'none';
       pill.innerHTML = consensusPillHTML(consensus);
       pill.classList.add('show');
+      stats.innerHTML = roundStatsHTML();
     } else {
       status.style.display = '';
-      status.innerHTML = `<span class="count">${votedCount}</span> of ${totalCount} voted`;
+      status.innerHTML = totalCount === 0
+        ? 'Waiting for players…'
+        : `<span class="count">${votedCount}</span> of ${totalCount} voted` + (awayCount ? ` · ${awayCount} away` : '');
       pill.classList.remove('show');
+      stats.innerHTML = '';
+    }
+
+    // Alone in the room: the invite is the next step, so make it the focus.
+    const alone = !revealed && state.room.players.length === 1;
+    document.getElementById('invite-panel').classList.toggle('show', alone);
+    if (alone) {
+      document.getElementById('invite-code').textContent = state.room.id;
+      document.getElementById('invite-url').textContent = `${location.host}/${state.room.id}`;
+      document.getElementById('invite-copy').textContent = canShare() ? 'Share invite link' : 'Copy invite link';
     }
 
     // Compute diff against last snapshot and apply incrementally.
-    const next = { revealed, players: state.room.players };
+    const next = { revealed, players: tablePlayers };
     const prev = lastStageState || { revealed: false, players: [] };
     const ops  = renderUtils.computeStageDiff(prev, next);
     applyStageOps(cards, ops, revealed, consensus);
@@ -1723,21 +2240,38 @@
     // every neighbor card on every vote).
     lastStageState = JSON.parse(JSON.stringify(next));
 
-    // Action row (unchanged behavior).
-    if (revealed) {
-      if (isHost) {
-        action.innerHTML = '<button class="btn-new-round" onclick="newRound()">Start New Round</button>';
-      } else {
-        action.innerHTML = '<span class="stage-hint">Waiting for host to start new round...</span>';
-      }
+    // Action row. Rebuilt only when it changes, so keyboard focus on the
+    // button survives the frequent room-state broadcasts.
+    let html;
+    if (!isHost && host?.away && me && !me.away) {
+      html = `<div class="host-away"><span class="stage-hint">${escapeHtml(host.name)} (host) is away.</span>` +
+             '<button class="btn-new-round" onclick="claimHost()">Take over as host</button></div>';
+    } else if (revealed) {
+      html = isHost
+        ? '<button class="btn-new-round" onclick="newRound()">Start new round</button>'
+        : '<span class="stage-hint">Waiting for the host to start a new round…</span>';
+    } else if (isHost) {
+      const allVoted = votedCount === totalCount && totalCount > 0;
+      html = `<button class="btn-reveal ${allVoted ? 'all-in' : ''}" onclick="reveal()" ${votedCount === 0 ? 'disabled' : ''}>Reveal cards</button>`;
     } else {
-      if (isHost) {
-        const allVoted = votedCount === totalCount && totalCount > 0;
-        action.innerHTML = `<button class="btn-reveal ${allVoted ? 'all-in' : ''}" onclick="reveal()" ${votedCount === 0 ? 'disabled style="opacity:0.5;cursor:default;"' : ''}>Reveal Cards</button>`;
-      } else {
-        action.innerHTML = '<span class="stage-hint">Waiting for host to reveal...</span>';
-      }
+      html = '<span class="stage-hint">Waiting for the host to reveal…</span>';
     }
+    if (action.dataset.html !== html) {
+      const hadFocus = action.contains(document.activeElement);
+      action.innerHTML = html;
+      action.dataset.html = html;
+      if (hadFocus) action.querySelector('button')?.focus();
+    }
+  }
+
+  function renderTopic(isHost) {
+    const input = document.getElementById('topic-input');
+    const text = document.getElementById('topic-text');
+    const topic = state.room.topic || '';
+    input.hidden = !isHost;
+    // Never overwrite what the host is typing.
+    if (isHost && document.activeElement !== input) input.value = topic;
+    text.textContent = isHost ? '' : topic;
   }
 
   function applyStageOps(container, ops, revealed, consensus) {
@@ -1862,18 +2396,49 @@
 
   function renderHand() {
     const container = document.getElementById('hand-cards');
+    const hint = document.getElementById('kbd-hint');
     const system = state.room.votingSystem;
+    const me = state.room.players.find(p => p.id === state.playerId);
+    if (me?.observer) {
+      container.classList.remove('hand-locked', 'hand-offline');
+      container.innerHTML = '<div class="hand-message">You are watching this round.' +
+        '<button class="btn-new-round" style="padding:8px 16px;font-size:13px" onclick="setObserver(false)">Join the vote</button></div>';
+      hint.innerHTML = '';
+      // The cards are gone: the next render must rebuild them.
+      delete container.dataset.key;
+      return;
+    }
     const locked = state.room.revealed;
     container.classList.toggle('hand-locked', !!locked);
-    container.innerHTML = system.map(value => {
-      const picked = state.myVote === value ? 'picked' : '';
-      return `<div class="hand-card ${picked}" onclick="pickCard('${value}')">${value}</div>`;
-    }).join('');
+    container.classList.toggle('hand-offline', !state.connected);
+    const fan = renderUtils.fanLayout(system.length);
+    // Rebuild only when the deck or selection changes, so a focused card
+    // keeps focus across room-state broadcasts.
+    const key = system.join('|') + '#' + state.myVote + '#' + (locked ? 1 : 0) + (state.connected ? 1 : 0);
+    if (container.dataset.key !== key) {
+      const focused = document.activeElement?.closest?.('.hand-card')?.dataset.value;
+      container.innerHTML = system.map((value, i) => {
+        const picked = state.myVote === value;
+        const style = `--rot:${fan[i].rot}deg;--lift:${fan[i].lift}px;z-index:${i + 1}`;
+        return `<button type="button" class="hand-card ${picked ? 'picked' : ''}" style="${style}" data-value="${escapeHtml(value)}" ` +
+          `aria-pressed="${picked}" aria-label="Vote ${escapeHtml(value)}" ${locked || !state.connected ? 'disabled' : ''}>${escapeHtml(value)}</button>`;
+      }).join('');
+      container.dataset.key = key;
+      if (focused !== undefined) container.querySelector(`[data-value="${CSS.escape(focused)}"]`)?.focus();
+    }
+    const isHost = me?.isHost;
+    hint.innerHTML = 'Type a value to vote' + (isHost ? ' · <kbd>R</kbd> reveal · <kbd>N</kbd> new round' : '');
   }
+
+  document.getElementById('hand-cards').addEventListener('click', (e) => {
+    const card = e.target.closest('.hand-card');
+    if (card) pickCard(card.dataset.value);
+  });
 
   // ─── Action Functions ─────────────────────────────────────────────────────────
   function pickCard(value) {
-    if (state.room.revealed) return;
+    if (!state.room || state.room.revealed) return;
+    if (!state.connected) { showToast('Reconnecting… your vote was not sent'); return; }
     if (state.myVote === value) {
       state.myVote = null;
       send({ type: 'clear-vote' });
@@ -1886,8 +2451,29 @@
 
   function reveal() { send({ type: 'reveal' }); }
   function newRound() { send({ type: 'new-round' }); }
-  function leaveRoom() {
-    if (!confirm('Leave this room?')) return;
+  function claimHost() { send({ type: 'claim-host' }); }
+  function setObserver(on) {
+    saveObserver(on);
+    send({ type: 'set-observer', observer: !!on });
+  }
+
+  const topicInput = document.getElementById('topic-input');
+  topicInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') topicInput.blur(); });
+  topicInput.addEventListener('change', () => send({ type: 'set-topic', topic: topicInput.value }));
+
+  function toggleDrawer(force) {
+    const sidebar = document.getElementById('sidebar');
+    const open = typeof force === 'boolean' ? force : !sidebar.classList.contains('open');
+    sidebar.classList.toggle('open', open);
+    document.getElementById('drawer-backdrop').classList.toggle('show', open);
+    document.getElementById('btn-players').setAttribute('aria-expanded', String(open));
+  }
+
+  async function leaveRoom() {
+    const roomId = state.room?.id;
+    const ok = await askConfirm({ title: 'Leave this room?', body: 'Your seat and vote are removed. You can join again with the link.', ok: 'Leave' });
+    // Navigation during the dialog may have left the room already.
+    if (!ok || !state.room || state.room.id !== roomId) return;
     send({ type: 'leave-room' });
     clearSession();
     state.room = null;
@@ -1899,22 +2485,34 @@
     navigate('/');
   }
 
-  function copyInviteLink() {
+  // Briefly swap a button's label to confirm a copy. data-copied stops
+  // render() from overwriting the confirmation mid-flash.
+  function flashCopied(btn) {
+    if (!btn) return;
+    const orig = btn.textContent;
+    btn.dataset.copied = '1';
+    btn.textContent = 'Copied!';
+    setTimeout(() => { btn.textContent = orig; delete btn.dataset.copied; }, 1500);
+  }
+  function copyText(text, btn) {
+    const done = () => flashCopied(btn);
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(text).then(done, () => showToast(text));
+    } else {
+      showToast(text);
+    }
+  }
+  function copyInviteLink(e) {
     const url = `${location.origin}/${state.room.id}`;
-    navigator.clipboard.writeText(url).then(() => {
-      const btn = document.getElementById('btn-copy-link');
-      const orig = btn.textContent;
-      btn.textContent = 'Copied!';
-      setTimeout(() => { btn.textContent = orig; }, 1500);
-    });
+    if (canShare()) {
+      navigator.share({ title: `${state.room.name} · Pointer`, text: 'Join our estimation room', url }).catch(() => {});
+      return;
+    }
+    const btn = (e && e.currentTarget) || document.activeElement?.closest?.('button') || document.getElementById('btn-copy-link');
+    copyText(url, btn);
   }
   function copyRoomCode() {
-    navigator.clipboard.writeText(state.room.id).then(() => {
-      const btn = document.getElementById('room-code-display');
-      const orig = btn.textContent;
-      btn.textContent = 'Copied!';
-      setTimeout(() => { btn.textContent = orig; }, 1500);
-    });
+    copyText(state.room.id.toUpperCase(), document.getElementById('room-code-display'));
   }
 
   function changeColor(colorIndex) {
@@ -2018,7 +2616,11 @@
     handleRoute();
   }
 
-  function handleRoute() {
+  let routeGen = 0;
+  async function handleRoute() {
+    // A newer route wins: it cancels a dialog that an older route still waits on.
+    const gen = ++routeGen;
+    cancelConfirm();
     const code = location.pathname.slice(1).toLowerCase();
     // Any path change cancels an in-flight room probe. Otherwise a late
     // room-check-result for a code the user has since navigated away from
@@ -2049,8 +2651,12 @@
     }
     // In a different room — confirm before switching.
     if (state.room) {
-      if (!confirm('Leave your current room to join a different one?')) {
-        navigate(`/${state.room.id}`);
+      const fromRoom = state.room.id;
+      const ok = await askConfirm({ title: 'Switch rooms?', body: `You are in ${state.room.name}. Leave it to join ${code.toUpperCase()}?`, ok: 'Switch rooms' });
+      // A newer route took over while the dialog was open (for example Back).
+      if (gen !== routeGen || !state.room || state.room.id !== fromRoom) return;
+      if (!ok) {
+        navigate(`/${fromRoom}`);
         return;
       }
       send({ type: 'leave-room' });
@@ -2072,16 +2678,50 @@
     // it connects (it looks at state.pendingRoomCheck).
   }
 
-  // Shuffle landing hero cards
+  // Shuffle the landing hero card colors. The faces stay in order (XS..XL),
+  // so the fan reads as a hand rather than a misdealt pile.
   const heroContainer = document.querySelector('.landing-hero-cards');
   if (heroContainer) {
     const cards = [...heroContainer.children];
-    for (let i = cards.length - 1; i > 0; i--) {
+    const colors = cards.map(c => c.style.background);
+    for (let i = colors.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
-      [cards[i], cards[j]] = [cards[j], cards[i]];
+      [colors[i], colors[j]] = [colors[j], colors[i]];
     }
-    cards.forEach(c => heroContainer.appendChild(c));
+    cards.forEach((c, i) => { c.style.background = colors[i]; });
   }
+
+  // Keyboard voting. Type a card's face: '5', '1' then '3' for 13, 'x' then
+  // 's' for XS, '?' for unsure. A prefix that could still grow ('1' when 13
+  // exists) waits briefly. Backspace clears the vote; the host has R and N.
+  let typeBuffer = '';
+  let typeTimer = null;
+  const TYPE_WAIT_MS = 600;
+  document.addEventListener('keydown', (e) => {
+    if (!state.room || !document.getElementById('app').classList.contains('active')) return;
+    if (e.metaKey || e.ctrlKey || e.altKey || openOverlay()) return;
+    if (e.target.closest && e.target.closest('input, textarea, select')) return;
+    const me = state.room.players.find(p => p.id === state.playerId);
+    const key = e.key.length === 1 ? e.key.toUpperCase() : e.key;
+    if (me?.isHost && key === 'R' && !state.room.revealed) { e.preventDefault(); reveal(); return; }
+    if (me?.isHost && key === 'N' && state.room.revealed) { e.preventDefault(); newRound(); return; }
+    if ((key === 'Backspace' || key === 'Delete') && state.myVote && !state.room.revealed) {
+      e.preventDefault(); pickCard(state.myVote); return;
+    }
+    if (key.length !== 1 || me?.observer || state.room.revealed) return;
+    const faces = state.room.votingSystem;
+    let buf = typeBuffer + key;
+    if (!faces.some(f => f.startsWith(buf))) buf = key;
+    if (!faces.some(f => f.startsWith(buf))) { typeBuffer = ''; return; }
+    e.preventDefault();
+    clearTimeout(typeTimer);
+    const exact = faces.includes(buf);
+    const longer = faces.some(f => f !== buf && f.startsWith(buf));
+    const commit = (v) => { typeBuffer = ''; if (state.myVote !== v) pickCard(v); };
+    if (exact && !longer) { commit(buf); return; }
+    typeBuffer = buf;
+    typeTimer = setTimeout(() => { if (faces.includes(typeBuffer)) commit(typeBuffer); else typeBuffer = ''; }, TYPE_WAIT_MS);
+  });
 
   window.addEventListener('popstate', handleRoute);
   connect();
