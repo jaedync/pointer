@@ -3,14 +3,15 @@
 // token reconnect after reload, and XSS-safe rendering. Requires playwright.
 //   npm run test:e2e
 const path = require('path');
-const os = require('os');
+const fs = require('fs');
 const { chromium } = require('playwright');
 
 const PORT = 3987;
 process.env.PORT = String(PORT);
 process.env.COUNTDOWN_MS = '2200'; // spans ~3 displayed seconds so the strobe check is meaningful
 process.env.POINTER_STATE_FILE = ''; // never write a snapshot from a test run
-const SHOTS = os.tmpdir();
+const SHOTS = process.env.SHOTS || path.join(__dirname, '..', '.tmp', 'e2e');
+fs.mkdirSync(SHOTS, { recursive: true });
 
 const results = [];
 function check(name, cond, detail) {

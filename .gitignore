@@ -10,3 +10,4 @@ card-styles*.html
 .superpowers/
 .worktrees/
 data/
+.tmp/
