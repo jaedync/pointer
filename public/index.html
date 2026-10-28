@@ -693,6 +693,15 @@
   }
   .stage-status .count { color: var(--accent-ink); }
 
+  /* The cards and the invite panel share one grid cell, so the panel sits on
+     top of the table, centered between the status line and the action button,
+     instead of taking its own row and pushing the cards up. */
+  .stage-middle {
+    flex: 1; min-height: 0;
+    display: grid;
+    grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+  }
+  .stage-middle > * { grid-area: 1 / 1; }
   .stage-cards {
     display: flex; gap: 16px;
     row-gap: 24px;
@@ -889,9 +898,11 @@
 
   /* ─── Invite panel (host alone in the room) ─── */
   .invite-panel {
-    display: none; z-index: 1;
+    display: none; z-index: 2;
     flex-direction: column; align-items: center; gap: 14px;
-    margin: 8px auto 20px; padding: 28px 32px;
+    align-self: center; justify-self: center;
+    max-height: 100%; overflow-y: auto;
+    padding: 28px 32px;
     width: min(440px, 100%);
     background: var(--surface); border: 1px solid var(--border);
     border-radius: 20px; box-shadow: 0 8px 32px rgba(46,35,32,0.06);
@@ -1304,7 +1315,7 @@
     .cpill-val { min-width: 36px; height: 36px; font-size: 21px; }
     .rs-note { font-size: 12px; }
     .btn-reveal, .btn-new-round { padding: 13px 32px; }
-    .invite-panel { padding: 22px 18px; margin-bottom: 12px; }
+    .invite-panel { padding: 22px 18px; }
     .invite-code { font-size: 34px; }
 
     .hand { padding: 10px 10px calc(12px + env(safe-area-inset-bottom)); }
@@ -1451,6 +1462,7 @@
         <div class="consensus-pill" id="consensus-pill" aria-live="polite"></div>
         <div class="round-stats" id="round-stats"></div>
       </div>
+      <div class="stage-middle">
       <div class="stage-cards" id="stage-cards" tabindex="0" aria-label="Table"></div>
       <div class="invite-panel" id="invite-panel">
         <div class="invite-title">Invite your team</div>
@@ -1458,6 +1470,7 @@
         <div class="invite-url" id="invite-url"></div>
         <button class="invite-btn" id="invite-copy" onclick="copyInviteLink(event)">Copy invite link</button>
         <div class="invite-sub">Anyone with the link can join. No accounts.</div>
+      </div>
       </div>
       <div class="stage-action" id="stage-action"></div>
     </main>
