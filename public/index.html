@@ -51,6 +51,7 @@
 
   :root {
     --bg: #faf5f2;
+    --sidebar-w: 280px;
     --surface: #ffffff;
     --header-bg: #2e2320;
     --header-text: #f0e8e2;
@@ -451,7 +452,7 @@
   .game-main {
     flex: 1;
     display: grid;
-    grid-template-columns: 280px 1fr;
+    grid-template-columns: var(--sidebar-w) 1fr;
     grid-template-rows: 1fr auto;
     min-height: 0;
   }
@@ -1261,6 +1262,12 @@
     opacity: 1;
     transform: translateX(-50%) translateY(0);
   }
+  /* In a room on a wide screen, the sidebar takes the left column: center the
+     toast and the banner on the stage, which is what the user looks at. */
+  @media (min-width: 769px) {
+    body:has(#app.active) .toast,
+    body:has(#app.active) .conn-banner { left: calc(50% + var(--sidebar-w) / 2); }
+  }
 
   /* ─── Responsive: Mobile ─── */
   .drawer-backdrop { display: none; }
@@ -1614,7 +1621,9 @@
     token: null,
     room: null,
     myVote: null,
-    wasHost: false,
+    // null = not known yet (fresh page or new seat): the first room state sets
+    // it without a toast, so a reload does not announce a role you already had.
+    wasHost: null,
     // serverTime(received) - clientNow(received); add to a local clock reading to
     // estimate the server's clock. Keeps the countdown correct under clock skew.
     serverClockOffset: 0,
@@ -1841,7 +1850,7 @@
 
   // Escape closes the open dialog; Tab stays inside it.
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && document.getElementById('sidebar').classList.contains('open')) { toggleDrawer(false); return; }
+    if (e.key === 'Escape' && document.getElementById('sidebar').classList.contains('open')) { e.preventDefault(); toggleDrawer(false); return; }
     const overlay = openOverlay();
     if (!overlay) return;
     if (e.key === 'Escape') {
@@ -1989,7 +1998,7 @@
 
     // Detect host promotion
     const me = state.room.players.find(p => p.id === state.playerId);
-    if (me && me.isHost && !state.wasHost) {
+    if (me && me.isHost && state.wasHost === false) {
       showToast('You are now the host');
     }
     state.wasHost = me?.isHost || false;
@@ -2170,9 +2179,9 @@
     `;
   }
 
-  function makeStageCardNode(p, revealed, consensus) {
+  function makeStageCardNode(p, revealed, consensus, animate = true) {
     const wrap = document.createElement('div');
-    wrap.className = 'stage-card is-entering' + (p.away ? ' is-away' : '');
+    wrap.className = 'stage-card' + (animate ? ' is-entering' : '') + (p.away ? ' is-away' : '');
     wrap.dataset.playerId = p.id;
     const inner = document.createElement('div');
     inner.className = 'stage-card-inner';
@@ -2243,9 +2252,12 @@
 
     // Compute diff against last snapshot and apply incrementally.
     const next = { revealed, players: tablePlayers };
+    // First paint of a room (fresh page, reload, room switch): the cards are
+    // already on the table, so they appear at once. Only later arrivals deal in.
+    const firstPaint = lastStageState === null;
     const prev = lastStageState || { revealed: false, players: [] };
     const ops  = renderUtils.computeStageDiff(prev, next);
-    applyStageOps(cards, ops, revealed, consensus);
+    applyStageOps(cards, ops, revealed, consensus, !firstPaint);
     // Server's player Map is insertion-ordered. add/remove ops preserve that
     // order naturally (add appends, remove leaves the gap collapsed). So we
     // never need to reshuffle existing nodes — and doing so would detach +
@@ -2287,7 +2299,7 @@
     text.textContent = isHost ? '' : topic;
   }
 
-  function applyStageOps(container, ops, revealed, consensus) {
+  function applyStageOps(container, ops, revealed, consensus, animateAdds = true) {
     // Cards refreshed by an 'unreveal' op this batch. The unreveal handler
     // already swaps their content (revealed=false) and animates the flip-back +
     // clear; a follow-up 'update'/clear op would synchronously strip .flip and
@@ -2354,7 +2366,7 @@
         continue;
       }
       if (op.type === 'add') {
-        container.appendChild(makeStageCardNode(op.player, revealed, consensus));
+        container.appendChild(makeStageCardNode(op.player, revealed, consensus, animateAdds));
         continue;
       }
       if (op.type === 'remove') {
@@ -2440,7 +2452,7 @@
       if (focused !== undefined) container.querySelector(`[data-value="${CSS.escape(focused)}"]`)?.focus();
     }
     const isHost = me?.isHost;
-    hint.innerHTML = 'Type a value to vote' + (isHost ? ' · <kbd>R</kbd> reveal · <kbd>N</kbd> new round' : '');
+    hint.innerHTML = 'Type a value to vote · <kbd>Esc</kbd> clear' + (isHost ? ' · <kbd>R</kbd> reveal · <kbd>N</kbd> new round' : '');
   }
 
   document.getElementById('hand-cards').addEventListener('click', (e) => {
@@ -2493,7 +2505,7 @@
     state.playerId = null;
     state.token = null;
     state.myVote = null;
-    state.wasHost = false;
+    state.wasHost = null;
     resetStage();
     navigate('/');
   }
@@ -2650,7 +2662,7 @@
         state.playerId = null;
         state.token = null;
         state.myVote = null;
-        state.wasHost = false;
+        state.wasHost = null;
         resetStage();
       }
       showLanding();
@@ -2678,7 +2690,7 @@
       state.playerId = null;
       state.token = null;
       state.myVote = null;
-      state.wasHost = false;
+      state.wasHost = null;
       resetStage();
     }
     // Not in this room yet. Probe the server before deciding which modal to
@@ -2706,19 +2718,21 @@
 
   // Keyboard voting. Type a card's face: '5', '1' then '3' for 13, 'x' then
   // 's' for XS, '?' for unsure. A prefix that could still grow ('1' when 13
-  // exists) waits briefly. Backspace clears the vote; the host has R and N.
+  // exists) waits briefly. Backspace, Delete or Escape clears the vote; the host has R and N.
   let typeBuffer = '';
   let typeTimer = null;
   const TYPE_WAIT_MS = 600;
   document.addEventListener('keydown', (e) => {
     if (!state.room || !document.getElementById('app').classList.contains('active')) return;
-    if (e.metaKey || e.ctrlKey || e.altKey || openOverlay()) return;
+    // defaultPrevented: Escape already closed the drawer or a dialog.
+    if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || openOverlay()) return;
     if (e.target.closest && e.target.closest('input, textarea, select')) return;
     const me = state.room.players.find(p => p.id === state.playerId);
     const key = e.key.length === 1 ? e.key.toUpperCase() : e.key;
     if (me?.isHost && key === 'R' && !state.room.revealed) { e.preventDefault(); reveal(); return; }
     if (me?.isHost && key === 'N' && state.room.revealed) { e.preventDefault(); newRound(); return; }
-    if ((key === 'Backspace' || key === 'Delete') && state.myVote && !state.room.revealed) {
+    if (key === 'Escape') { typeBuffer = ''; clearTimeout(typeTimer); }
+    if ((key === 'Backspace' || key === 'Delete' || key === 'Escape') && state.myVote && !state.room.revealed) {
       e.preventDefault(); pickCard(state.myVote); return;
     }
     if (key.length !== 1 || me?.observer || state.room.revealed) return;

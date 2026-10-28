@@ -111,6 +111,36 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
     (await host.evaluate(() => { const me = state.room.players.find(p => p.id === state.playerId); return me && me.name; })) === 'Alice');
   check('exactly one host after reconnect', (await host.evaluate(() => state.room.players.filter(p => p.isHost).length)) === 1);
   check('no ghost player after reconnect', (await guest.locator('#players-list .player-row').count()) === 2);
+  // A reload must look like the same room, not a new arrival: no "You are now
+  // the host" toast (you were already host) and no deal-in animation.
+  await sleep(300);
+  check('reload shows no host-change toast',
+    !(await host.evaluate(() => !!document.getElementById('toast')?.classList.contains('show'))));
+  // Look at the first frame that has cards: the deal-in runs for ~0.5 s.
+  await host.reload({ waitUntil: 'commit' });
+  const entering = await host.waitForFunction(() => {
+    const cards = document.querySelectorAll('#stage-cards .stage-card');
+    // An object, not a number: a count of 0 is falsy and would keep waiting.
+    return cards.length ? { n: [...cards].filter(c => c.classList.contains('is-entering')).length } : false;
+  }, null, { timeout: 6000, polling: 'raf' }).then(h => h.jsonValue()).then(v => v.n);
+  check('reload does not deal the table cards in again', entering === 0, `${entering} card(s) dealing in`);
+  await host.waitForFunction(() => state.room && state.room.players.length === 2, { timeout: 5000 });
+
+  // Toasts center on the stage (right of the sidebar), not on the window.
+  const offset = await host.evaluate(() => {
+    showToast('Centering check');
+    const t = document.getElementById('toast').getBoundingClientRect();
+    const st = document.querySelector('.stage').getBoundingClientRect();
+    return Math.abs((t.left + t.width / 2) - (st.left + st.width / 2));
+  });
+  check('toast is centered on the stage', offset < 2, `${offset.toFixed(1)}px off`);
+
+  // Escape clears your vote, like Backspace.
+  await host.click('.hand-card[data-value="M"]');
+  await guest.waitForFunction(() => state.room.players.some(p => p.name === 'Alice' && p.vote), { timeout: 3000 });
+  await host.keyboard.press('Escape');
+  const cleared = await guest.waitForFunction(() => state.room.players.some(p => p.name === 'Alice' && !p.vote), null, { timeout: 3000 }).then(() => true, () => false);
+  check('Escape clears your vote', cleared && (await host.evaluate(() => state.myVote)) === null);
 
   // Back button → leave room (no ghost)
   await guest.goBack();
