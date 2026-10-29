@@ -141,7 +141,24 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   await guest.waitForFunction(() => state.room.players.some(p => p.name === 'Alice' && p.vote), { timeout: 3000 });
   await host.keyboard.press('Escape');
   const cleared = await guest.waitForFunction(() => state.room.players.some(p => p.name === 'Alice' && !p.vote), null, { timeout: 3000 }).then(() => true, () => false);
-  check('Escape clears your vote', cleared && (await host.evaluate(() => state.myVote)) === null);
+  const escState = await host.evaluate(() => ({ myVote: state.myVote, connected: state.connected, overlay: !!openOverlay(),
+    active: document.activeElement && (document.activeElement.id || document.activeElement.className), ownVote: state.room.players.find(p => p.id === state.playerId)?.vote }));
+  check('Escape clears your vote', cleared && escState.myVote === null, JSON.stringify(escState));
+
+  // A room state that the server sent before it saw your vote must not undo the
+  // vote: Escape or a second tap would then vote again instead of clearing it.
+  await host.waitForFunction(() => state.myVote === null && !state.room.players.find(p => p.id === state.playerId).vote, { timeout: 3000 });
+  const kept = await host.evaluate(() => {
+    const stale = JSON.parse(JSON.stringify(state.room));
+    stale.players.find(p => p.id === state.playerId).vote = null;
+    pickCard('L');
+    handleMessage({ type: 'room-state', room: stale, serverTime: Date.now() });
+    return { myVote: state.myVote, picked: document.querySelector('.hand-card.picked')?.dataset.value || null };
+  });
+  check('a stale room state keeps your new vote', kept.myVote === 'L' && kept.picked === 'L', JSON.stringify(kept));
+  await guest.waitForFunction(() => state.room.players.some(p => p.name === 'Alice' && p.vote), { timeout: 3000 });
+  await host.keyboard.press('Escape');
+  await guest.waitForFunction(() => state.room.players.some(p => p.name === 'Alice' && !p.vote), { timeout: 3000 });
 
   // Back button → leave room (no ghost)
   await guest.goBack();
