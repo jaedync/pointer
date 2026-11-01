@@ -116,15 +116,23 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   // The DOM cannot tell which face a 3D flip shows, so read the pixels: the top
   // strip of a revealed card is the light value face, not the player colour.
   // Firefox once showed the front (the initial) through the flipped card.
-  const faceShot = await host.locator('#stage-cards .stage-card').first().screenshot();
-  const topStrip = await host.evaluate(async (b64) => {
+  // WebKit runs animations slowly or not at all on a page it treats as
+  // hidden: bring the host to the front and wait for the flip to end.
+  await host.bringToFront();
+  const flipDone = await host.waitForFunction(() => [...document.querySelectorAll('#stage-cards .stage-card-inner')]
+    .every(el => el.classList.contains('flip') && new DOMMatrix(getComputedStyle(el).transform).m11 < -0.99), null, { timeout: 5000 }).then(() => true, () => false);
+  check('the reveal flip ends with every card turned', flipDone);
+  const faceShot = await host.locator('#stage-cards').screenshot({ path: path.join(SHOTS, 'pointer-e2e-cards.png') });
+  const firstBox = await host.evaluate(() => { const r = document.querySelector('#stage-cards .stage-card').getBoundingClientRect(), p = document.getElementById('stage-cards').getBoundingClientRect(); return { x: r.left - p.left, y: r.top - p.top, w: r.width, h: r.height }; });
+  const topStrip = await host.evaluate(async ([b64, box]) => {
     const img = new Image(); img.src = 'data:image/png;base64,' + b64; await img.decode();
     const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
     const g = c.getContext('2d'); g.drawImage(img, 0, 0);
-    const d = g.getImageData(Math.round(img.width * 0.3), Math.round(img.height * 0.1), Math.round(img.width * 0.4), Math.round(img.height * 0.08)).data;
+    const k = img.width / document.getElementById('stage-cards').getBoundingClientRect().width;
+    const d = g.getImageData(Math.round((box.x + box.w * 0.3) * k), Math.round((box.y + box.h * 0.1) * k), Math.round(box.w * 0.4 * k), Math.round(box.h * 0.08 * k)).data;
     let min = 255; for (let i = 0; i < d.length; i += 4) min = Math.min(min, d[i], d[i + 1], d[i + 2]);
     return min;
-  }, faceShot.toString('base64'));
+  }, [faceShot.toString('base64'), firstBox]);
   check('revealed cards show the value face', topStrip > 200, `darkest channel in the top strip: ${topStrip}`);
   check('countdown overlay cleared after reveal', (await host.locator('#countdown-overlay.show').count()) === 0);
   check('exactly one host', await host.evaluate(() => state.room.players.filter(p => p.isHost).length) === 1);

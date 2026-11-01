@@ -423,15 +423,23 @@ async function layoutRegressions(browser, base) {
     await host.waitForTimeout(500);
     const f = await fits(host);
     check(`${vp.name}: room fits (no overflow, hand on screen)`, f.length === 0, f.join('; '));
+    await host.bringToFront();
+    await host.waitForTimeout(300);
     await host.screenshot({ path: `${SHOTS}/${vp.name}-4-voting.png` });
     const a = await axeSerious(host);
     check(`${vp.name}: room axe clean`, a.length === 0, a.join('; '));
 
+    // WebKit slows animations on a page it treats as hidden; the host is the
+    // page the screenshots show, so keep it in front.
+    await host.bringToFront();
     await host.click('.btn-reveal');
     await host.waitForTimeout(250);
     await host.screenshot({ path: `${SHOTS}/${vp.name}-5-countdown.png` });
     await host.waitForSelector('.consensus-pill.show');
     await host.waitForTimeout(1300);
+    const flipped = await host.waitForFunction(() => [...document.querySelectorAll('#stage-cards .stage-card-inner')]
+      .filter(el => el.classList.contains('flip')).every(el => new DOMMatrix(getComputedStyle(el).transform).m11 < -0.99), null, { timeout: 5000 }).then(() => true, () => false);
+    check(`${vp.name}: the reveal flip ends`, flipped);
     await host.screenshot({ path: `${SHOTS}/${vp.name}-6-revealed.png` });
     const f2 = await fits(host);
     check(`${vp.name}: revealed fits`, f2.length === 0, f2.join('; '));

@@ -780,6 +780,15 @@
     transform-style: preserve-3d; position: relative;
   }
   .stage-card-inner.flip { transform: rotateY(180deg); }
+  /* Also swap the faces when the card is edge-on. Some renderers (headless
+     WebKit with mobile emulation) ignore backface-visibility and would show the
+     back face, mirrored, on top of the front. The overshooting curve above
+     reaches 90deg at 13% of its duration. */
+  .stage-card-front, .stage-card-back {
+    transition: visibility 0s linear calc(var(--flip-duration, 0.45s) * 0.13);
+  }
+  .stage-card-back, .stage-card-inner.flip .stage-card-front { visibility: hidden; }
+  .stage-card-inner.flip .stage-card-back { visibility: visible; }
   .stage-card-front, .stage-card-back {
     position: absolute; width: 100%; height: 100%; border-radius: 14px;
     -webkit-backface-visibility: hidden;
