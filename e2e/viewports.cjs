@@ -98,11 +98,12 @@ async function layoutRegressions(browser, base) {
       const dialog = page.locator('#lobby-overlay .lobby-card');
       await dialog.hover();
       await page.mouse.wheel(0, 1000);
-      await page.waitForTimeout(300);
-      const reachable = await dialog.evaluate(el => {
+      // Wait for the scroll to settle; WebKit scrolls more slowly under load.
+      const reachable = await page.waitForFunction(() => {
+        const el = document.querySelector('#lobby-overlay .lobby-card');
         const d = el.getBoundingClientRect(), b = document.getElementById('btn-create-game').getBoundingClientRect();
         return el.scrollTop > 0 && b.top >= d.top && b.bottom <= d.bottom;
-      });
+      }, null, { timeout: 2000 }).then(() => true, () => false);
       check('layout 1: landscape Create game is reachable by wheel', reachable);
     }
     await shot(w, h, 'create');
@@ -226,23 +227,31 @@ async function layoutRegressions(browser, base) {
       });
     });
     check(`layout guard ${w}: color dot and swatches keep original visible sizes`, colorLook);
-    let keyboardWorks = false;
+    let keyboardWorks = false, keyboardDetail = 'no keyboard targets';
     if (keyboardColors) {
       // Close the pointer-opened palette, then operate it with real keys.
       await page.keyboard.press('Escape');
+      // Reach the trigger with a key, as a keyboard user does: WebKit shows no
+      // focus ring for a focus that follows a script-only focus. Tab, then
+      // Shift+Tab, so the drawer's focus trap does not wrap focus by script.
       await page.focus('.color-edit');
+      await page.keyboard.press('Tab');
+      await page.keyboard.press('Shift+Tab');
+      const beforeEnter = await page.evaluate(() => ({ el: document.activeElement.className || document.activeElement.tagName, fv: document.activeElement.matches(':focus-visible') }));
       await page.keyboard.press('Enter');
-      const keyboardOpen = await page.evaluate(() => document.activeElement.matches('.color-swatch') &&
-        document.querySelector('.color-picker-popover').classList.contains('show') &&
-        getComputedStyle(document.activeElement).outlineStyle !== 'none');
+      const openParts = await page.evaluate(() => ({ swatch: document.activeElement.matches('.color-swatch'),
+        shown: document.querySelector('.color-picker-popover').classList.contains('show'),
+        outline: getComputedStyle(document.activeElement).outlineStyle, activeEl: document.activeElement.className || document.activeElement.tagName }));
+      const keyboardOpen = openParts.swatch && openParts.shown && openParts.outline !== 'none';
       await page.keyboard.press('Tab');
       const tabbed = await page.evaluate(() => document.activeElement.matches('.color-swatch'));
       await page.evaluate(() => renderSidebar());
       const retained = await page.evaluate(() => document.activeElement.matches('.color-swatch') &&
         document.querySelector('.color-picker-popover').classList.contains('show'));
       keyboardWorks = keyboardOpen && tabbed && retained;
+      keyboardDetail = JSON.stringify({ beforeEnter, openParts, tabbed, retained, active: await page.evaluate(() => document.activeElement.className || document.activeElement.tagName) });
     }
-    check(`layout 9 ${w}: keyboard opens palette, tabs swatches, and retains focus on updates`, keyboardWorks);
+    check(`layout 9 ${w}: keyboard opens palette, tabs swatches, and retains focus on updates`, keyboardWorks, keyboardDetail);
     await shot(w, h, 'drawer-palette');
     if (keyboardColors) await page.keyboard.press('Escape');
     else await page.evaluate(() => document.getElementById('color-picker-popover').classList.remove('show'));
