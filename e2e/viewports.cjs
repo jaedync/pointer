@@ -4,7 +4,27 @@
 //   npm run test:e2e:viewports        (screenshots in $SHOTS or .tmp/viewports)
 const path = require('path');
 const fs = require('fs');
-const { chromium, devices } = require('playwright');
+const { chromium, firefox, webkit, devices } = require('playwright');
+// PW_BROWSER=firefox|webkit runs the same checks in another engine (default chromium).
+// PW_CHROMIUM only applies to chromium: it points at a local build.
+function launchBrowser() {
+  const name = process.env.PW_BROWSER || 'chromium';
+  const types = { chromium, firefox, webkit };
+  if (!types[name]) throw new Error(`PW_BROWSER must be chromium, firefox or webkit, not ${name}`);
+  const executablePath = name === 'chromium' ? process.env.PW_CHROMIUM || undefined : undefined;
+  // Firefox revalidates the stale-while-revalidate page in the background, and
+  // Playwright's Firefox driver reports that request as a navigation that never
+  // ends, so the next wait times out. A test run needs no HTTP cache.
+  const firefoxUserPrefs = name === 'firefox' ? { 'browser.cache.disk.enable': false, 'browser.cache.memory.enable': false } : undefined;
+  return types[name].launch({ executablePath, firefoxUserPrefs }).then(browser => {
+    if (name !== 'firefox') return browser;
+    // Firefox has no isMobile emulation; keep the viewport, touch and scale.
+    const newContext = browser.newContext.bind(browser);
+    browser.newContext = ({ isMobile, ...opts } = {}) => newContext(opts);
+    return browser;
+  });
+}
+
 const { AxeBuilder } = require('@axe-core/playwright');
 
 const PORT = 3988;
@@ -334,7 +354,7 @@ async function layoutRegressions(browser, base) {
 (async () => {
   require(path.join(__dirname, '..', 'server.js'));
   const base = `http://localhost:${PORT}`;
-  const browser = await chromium.launch({ executablePath: process.env.PW_CHROMIUM || undefined });
+  const browser = await launchBrowser();
   const guestCtx = await browser.newContext({ viewport: { width: 1280, height: 720 } });
 
   await layoutRegressions(browser, base);

@@ -4,7 +4,27 @@
 //   npm run test:e2e
 const path = require('path');
 const fs = require('fs');
-const { chromium } = require('playwright');
+const { chromium, firefox, webkit } = require('playwright');
+// PW_BROWSER=firefox|webkit runs the same checks in another engine (default chromium).
+// PW_CHROMIUM only applies to chromium: it points at a local build.
+function launchBrowser() {
+  const name = process.env.PW_BROWSER || 'chromium';
+  const types = { chromium, firefox, webkit };
+  if (!types[name]) throw new Error(`PW_BROWSER must be chromium, firefox or webkit, not ${name}`);
+  const executablePath = name === 'chromium' ? process.env.PW_CHROMIUM || undefined : undefined;
+  // Firefox revalidates the stale-while-revalidate page in the background, and
+  // Playwright's Firefox driver reports that request as a navigation that never
+  // ends, so the next wait times out. A test run needs no HTTP cache.
+  const firefoxUserPrefs = name === 'firefox' ? { 'browser.cache.disk.enable': false, 'browser.cache.memory.enable': false } : undefined;
+  return types[name].launch({ executablePath, firefoxUserPrefs }).then(browser => {
+    if (name !== 'firefox') return browser;
+    // Firefox has no isMobile emulation; keep the viewport, touch and scale.
+    const newContext = browser.newContext.bind(browser);
+    browser.newContext = ({ isMobile, ...opts } = {}) => newContext(opts);
+    return browser;
+  });
+}
+
 
 const PORT = 3987;
 process.env.PORT = String(PORT);
@@ -24,7 +44,7 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   const server = require(path.join(__dirname, '..', 'server.js'));
   await sleep(300);
   const base = `http://localhost:${PORT}`;
-  const browser = await chromium.launch({ executablePath: process.env.PW_CHROMIUM || undefined });
+  const browser = await launchBrowser();
   const errors = { host: [], guest: [] };
 
   const host = await (await browser.newContext()).newPage();
@@ -93,6 +113,19 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   await host.screenshot({ path: path.join(SHOTS, 'pointer-e2e-revealed.png') });
   const revealed = await host.$$eval('#stage-cards .sc-value', els => els.map(e => e.textContent));
   check('revealed votes shown on stage', revealed.includes('M') && revealed.includes('L'), revealed.join(','));
+  // The DOM cannot tell which face a 3D flip shows, so read the pixels: the top
+  // strip of a revealed card is the light value face, not the player colour.
+  // Firefox once showed the front (the initial) through the flipped card.
+  const faceShot = await host.locator('#stage-cards .stage-card').first().screenshot();
+  const topStrip = await host.evaluate(async (b64) => {
+    const img = new Image(); img.src = 'data:image/png;base64,' + b64; await img.decode();
+    const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
+    const g = c.getContext('2d'); g.drawImage(img, 0, 0);
+    const d = g.getImageData(Math.round(img.width * 0.3), Math.round(img.height * 0.1), Math.round(img.width * 0.4), Math.round(img.height * 0.08)).data;
+    let min = 255; for (let i = 0; i < d.length; i += 4) min = Math.min(min, d[i], d[i + 1], d[i + 2]);
+    return min;
+  }, faceShot.toString('base64'));
+  check('revealed cards show the value face', topStrip > 200, `darkest channel in the top strip: ${topStrip}`);
   check('countdown overlay cleared after reveal', (await host.locator('#countdown-overlay.show').count()) === 0);
   check('exactly one host', await host.evaluate(() => state.room.players.filter(p => p.isHost).length) === 1);
 
