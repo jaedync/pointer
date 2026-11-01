@@ -4,7 +4,27 @@
 //   npm run test:e2e
 const path = require('path');
 const fs = require('fs');
-const { chromium } = require('playwright');
+const { chromium, firefox, webkit } = require('playwright');
+// PW_BROWSER=firefox|webkit runs the same checks in another engine (default chromium).
+// PW_CHROMIUM only applies to chromium: it points at a local build.
+function launchBrowser() {
+  const name = process.env.PW_BROWSER || 'chromium';
+  const types = { chromium, firefox, webkit };
+  if (!types[name]) throw new Error(`PW_BROWSER must be chromium, firefox or webkit, not ${name}`);
+  const executablePath = name === 'chromium' ? process.env.PW_CHROMIUM || undefined : undefined;
+  // Firefox revalidates the stale-while-revalidate page in the background, and
+  // Playwright's Firefox driver reports that request as a navigation that never
+  // ends, so the next wait times out. A test run needs no HTTP cache.
+  const firefoxUserPrefs = name === 'firefox' ? { 'browser.cache.disk.enable': false, 'browser.cache.memory.enable': false } : undefined;
+  return types[name].launch({ executablePath, firefoxUserPrefs }).then(browser => {
+    if (name !== 'firefox') return browser;
+    // Firefox has no isMobile emulation; keep the viewport, touch and scale.
+    const newContext = browser.newContext.bind(browser);
+    browser.newContext = ({ isMobile, ...opts } = {}) => newContext(opts);
+    return browser;
+  });
+}
+
 
 const PORT = 3987;
 process.env.PORT = String(PORT);
@@ -24,7 +44,7 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   const server = require(path.join(__dirname, '..', 'server.js'));
   await sleep(300);
   const base = `http://localhost:${PORT}`;
-  const browser = await chromium.launch({ executablePath: process.env.PW_CHROMIUM || undefined });
+  const browser = await launchBrowser();
   const errors = { host: [], guest: [] };
 
   const host = await (await browser.newContext()).newPage();
@@ -93,6 +113,27 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   await host.screenshot({ path: path.join(SHOTS, 'pointer-e2e-revealed.png') });
   const revealed = await host.$$eval('#stage-cards .sc-value', els => els.map(e => e.textContent));
   check('revealed votes shown on stage', revealed.includes('M') && revealed.includes('L'), revealed.join(','));
+  // The DOM cannot tell which face a 3D flip shows, so read the pixels: the top
+  // strip of a revealed card is the light value face, not the player colour.
+  // Firefox once showed the front (the initial) through the flipped card.
+  // WebKit runs animations slowly or not at all on a page it treats as
+  // hidden: bring the host to the front and wait for the flip to end.
+  await host.bringToFront();
+  const flipDone = await host.waitForFunction(() => [...document.querySelectorAll('#stage-cards .stage-card-inner')]
+    .every(el => el.classList.contains('flip') && new DOMMatrix(getComputedStyle(el).transform).m11 < -0.99), null, { timeout: 5000 }).then(() => true, () => false);
+  check('the reveal flip ends with every card turned', flipDone);
+  const faceShot = await host.locator('#stage-cards').screenshot({ path: path.join(SHOTS, 'pointer-e2e-cards.png') });
+  const firstBox = await host.evaluate(() => { const r = document.querySelector('#stage-cards .stage-card').getBoundingClientRect(), p = document.getElementById('stage-cards').getBoundingClientRect(); return { x: r.left - p.left, y: r.top - p.top, w: r.width, h: r.height }; });
+  const topStrip = await host.evaluate(async ([b64, box]) => {
+    const img = new Image(); img.src = 'data:image/png;base64,' + b64; await img.decode();
+    const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
+    const g = c.getContext('2d'); g.drawImage(img, 0, 0);
+    const k = img.width / document.getElementById('stage-cards').getBoundingClientRect().width;
+    const d = g.getImageData(Math.round((box.x + box.w * 0.3) * k), Math.round((box.y + box.h * 0.1) * k), Math.round(box.w * 0.4 * k), Math.round(box.h * 0.08 * k)).data;
+    let min = 255; for (let i = 0; i < d.length; i += 4) min = Math.min(min, d[i], d[i + 1], d[i + 2]);
+    return min;
+  }, [faceShot.toString('base64'), firstBox]);
+  check('revealed cards show the value face', topStrip > 200, `darkest channel in the top strip: ${topStrip}`);
   check('countdown overlay cleared after reveal', (await host.locator('#countdown-overlay.show').count()) === 0);
   check('exactly one host', await host.evaluate(() => state.room.players.filter(p => p.isHost).length) === 1);
 
@@ -141,7 +182,24 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   await guest.waitForFunction(() => state.room.players.some(p => p.name === 'Alice' && p.vote), { timeout: 3000 });
   await host.keyboard.press('Escape');
   const cleared = await guest.waitForFunction(() => state.room.players.some(p => p.name === 'Alice' && !p.vote), null, { timeout: 3000 }).then(() => true, () => false);
-  check('Escape clears your vote', cleared && (await host.evaluate(() => state.myVote)) === null);
+  const escState = await host.evaluate(() => ({ myVote: state.myVote, connected: state.connected, overlay: !!openOverlay(),
+    active: document.activeElement && (document.activeElement.id || document.activeElement.className), ownVote: state.room.players.find(p => p.id === state.playerId)?.vote }));
+  check('Escape clears your vote', cleared && escState.myVote === null, JSON.stringify(escState));
+
+  // A room state that the server sent before it saw your vote must not undo the
+  // vote: Escape or a second tap would then vote again instead of clearing it.
+  await host.waitForFunction(() => state.myVote === null && !state.room.players.find(p => p.id === state.playerId).vote, { timeout: 3000 });
+  const kept = await host.evaluate(() => {
+    const stale = JSON.parse(JSON.stringify(state.room));
+    stale.players.find(p => p.id === state.playerId).vote = null;
+    pickCard('L');
+    handleMessage({ type: 'room-state', room: stale, serverTime: Date.now() });
+    return { myVote: state.myVote, picked: document.querySelector('.hand-card.picked')?.dataset.value || null };
+  });
+  check('a stale room state keeps your new vote', kept.myVote === 'L' && kept.picked === 'L', JSON.stringify(kept));
+  await guest.waitForFunction(() => state.room.players.some(p => p.name === 'Alice' && p.vote), { timeout: 3000 });
+  await host.keyboard.press('Escape');
+  await guest.waitForFunction(() => state.room.players.some(p => p.name === 'Alice' && !p.vote), { timeout: 3000 });
 
   // Back button → leave room (no ghost)
   await guest.goBack();

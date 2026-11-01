@@ -780,6 +780,15 @@
     transform-style: preserve-3d; position: relative;
   }
   .stage-card-inner.flip { transform: rotateY(180deg); }
+  /* Also swap the faces when the card is edge-on. Some renderers (headless
+     WebKit with mobile emulation) ignore backface-visibility and would show the
+     back face, mirrored, on top of the front. The overshooting curve above
+     reaches 90deg at 13% of its duration. */
+  .stage-card-front, .stage-card-back {
+    transition: visibility 0s linear calc(var(--flip-duration, 0.45s) * 0.13);
+  }
+  .stage-card-back, .stage-card-inner.flip .stage-card-front { visibility: hidden; }
+  .stage-card-inner.flip .stage-card-back { visibility: visible; }
   .stage-card-front, .stage-card-back {
     position: absolute; width: 100%; height: 100%; border-radius: 14px;
     -webkit-backface-visibility: hidden;
@@ -790,7 +799,9 @@
   .stage-card-front {
     box-shadow: 0 4px 20px rgba(0,0,0,0.1), 0 1px 3px rgba(0,0,0,0.06);
     overflow: hidden;
-    z-index: 2;
+    /* Firefox hides a turned-away face only when the face has its own 3D
+       transform. No z-index: WebKit then keeps the front on top of the vote. */
+    transform: rotateY(0deg);
   }
   .stage-card-front::after {
     content: ''; position: absolute; inset: 6px;
@@ -1650,6 +1661,10 @@
     token: null,
     room: null,
     myVote: null,
+    // The vote this client sent and the server has not echoed yet: { roomId, value, at }.
+    // A room state broadcast before the server saw it must not undo the local pick.
+    pendingVote: null,
+    serverVote: null,
     // null = not known yet (fresh page or new seat): the first room state sets
     // it without a toast, so a reload does not announce a role you already had.
     wasHost: null,
@@ -1667,6 +1682,7 @@
   let reconnectAttempts = 0;
   let bannerTimer = null;
   const BANNER_DELAY_MS = 1200;
+  const PENDING_VOTE_MS = 3000;
 
   // Per-room reconnect credentials (stable id + secret token), persisted so a
   // page reload inside the 60s window can prove identity and reclaim the seat.
@@ -1724,6 +1740,8 @@
     sock.onmessage = (e) => { if (ws === sock) handleMessage(JSON.parse(e.data)); };
     sock.onclose = () => {
       if (ws !== sock) return;
+      // A vote in flight may be lost; the room state after the reconnect is the truth.
+      state.pendingVote = null;
       setConnected(false);
       // Exponential backoff with jitter, so a server restart is not met by
       // every client at the same instant.
@@ -1779,7 +1797,15 @@
         // so the hand "picked" highlight survives reloads and the toggle-to-
         // clear behavior works even when we didn't see the original click.
         const me = msg.room.players.find(p => p.id === state.playerId);
-        if (me) state.myVote = me.vote === 'voted' ? state.myVote : me.vote;
+        if (me) {
+          const serverVote = me.vote === 'voted' ? state.myVote : me.vote;
+          const pending = state.pendingVote;
+          // The server drops a vote it rejects without a reply, so a pending pick expires.
+          const stillPending = pending && pending.roomId === msg.room.id && !msg.room.revealed
+            && serverVote !== pending.value && Date.now() - pending.at < PENDING_VOTE_MS;
+          state.serverVote = serverVote;
+          if (!stillPending) { state.pendingVote = null; state.myVote = serverVote; }
+        }
         render();
         break;
       }
@@ -2510,6 +2536,15 @@
       state.myVote = value;
       send({ type: 'vote', value });
     }
+    const pending = { roomId: state.room.id, value: state.myVote, at: Date.now() };
+    state.pendingVote = pending;
+    // With no later room state (a rejected vote), fall back to the server's view.
+    setTimeout(() => {
+      if (state.pendingVote !== pending) return;
+      state.pendingVote = null;
+      state.myVote = state.serverVote;
+      if (state.room) render();
+    }, PENDING_VOTE_MS);
     renderHand();
   }
 
@@ -2552,6 +2587,8 @@
     state.token = null;
     state.myVote = null;
     state.wasHost = null;
+    state.pendingVote = null;
+    state.serverVote = null;
     resetStage();
     navigate('/');
   }
@@ -2728,6 +2765,8 @@
         state.token = null;
         state.myVote = null;
         state.wasHost = null;
+        state.pendingVote = null;
+        state.serverVote = null;
         resetStage();
       }
       showLanding();
@@ -2756,6 +2795,8 @@
       state.token = null;
       state.myVote = null;
       state.wasHost = null;
+      state.pendingVote = null;
+      state.serverVote = null;
       resetStage();
     }
     // Not in this room yet. Probe the server before deciding which modal to

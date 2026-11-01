@@ -4,7 +4,27 @@
 //   npm run test:e2e:viewports        (screenshots in $SHOTS or .tmp/viewports)
 const path = require('path');
 const fs = require('fs');
-const { chromium, devices } = require('playwright');
+const { chromium, firefox, webkit, devices } = require('playwright');
+// PW_BROWSER=firefox|webkit runs the same checks in another engine (default chromium).
+// PW_CHROMIUM only applies to chromium: it points at a local build.
+function launchBrowser() {
+  const name = process.env.PW_BROWSER || 'chromium';
+  const types = { chromium, firefox, webkit };
+  if (!types[name]) throw new Error(`PW_BROWSER must be chromium, firefox or webkit, not ${name}`);
+  const executablePath = name === 'chromium' ? process.env.PW_CHROMIUM || undefined : undefined;
+  // Firefox revalidates the stale-while-revalidate page in the background, and
+  // Playwright's Firefox driver reports that request as a navigation that never
+  // ends, so the next wait times out. A test run needs no HTTP cache.
+  const firefoxUserPrefs = name === 'firefox' ? { 'browser.cache.disk.enable': false, 'browser.cache.memory.enable': false } : undefined;
+  return types[name].launch({ executablePath, firefoxUserPrefs }).then(browser => {
+    if (name !== 'firefox') return browser;
+    // Firefox has no isMobile emulation; keep the viewport, touch and scale.
+    const newContext = browser.newContext.bind(browser);
+    browser.newContext = ({ isMobile, ...opts } = {}) => newContext(opts);
+    return browser;
+  });
+}
+
 const { AxeBuilder } = require('@axe-core/playwright');
 
 const PORT = 3988;
@@ -78,11 +98,12 @@ async function layoutRegressions(browser, base) {
       const dialog = page.locator('#lobby-overlay .lobby-card');
       await dialog.hover();
       await page.mouse.wheel(0, 1000);
-      await page.waitForTimeout(300);
-      const reachable = await dialog.evaluate(el => {
+      // Wait for the scroll to settle; WebKit scrolls more slowly under load.
+      const reachable = await page.waitForFunction(() => {
+        const el = document.querySelector('#lobby-overlay .lobby-card');
         const d = el.getBoundingClientRect(), b = document.getElementById('btn-create-game').getBoundingClientRect();
         return el.scrollTop > 0 && b.top >= d.top && b.bottom <= d.bottom;
-      });
+      }, null, { timeout: 2000 }).then(() => true, () => false);
       check('layout 1: landscape Create game is reachable by wheel', reachable);
     }
     await shot(w, h, 'create');
@@ -206,23 +227,31 @@ async function layoutRegressions(browser, base) {
       });
     });
     check(`layout guard ${w}: color dot and swatches keep original visible sizes`, colorLook);
-    let keyboardWorks = false;
+    let keyboardWorks = false, keyboardDetail = 'no keyboard targets';
     if (keyboardColors) {
       // Close the pointer-opened palette, then operate it with real keys.
       await page.keyboard.press('Escape');
+      // Reach the trigger with a key, as a keyboard user does: WebKit shows no
+      // focus ring for a focus that follows a script-only focus. Tab, then
+      // Shift+Tab, so the drawer's focus trap does not wrap focus by script.
       await page.focus('.color-edit');
+      await page.keyboard.press('Tab');
+      await page.keyboard.press('Shift+Tab');
+      const beforeEnter = await page.evaluate(() => ({ el: document.activeElement.className || document.activeElement.tagName, fv: document.activeElement.matches(':focus-visible') }));
       await page.keyboard.press('Enter');
-      const keyboardOpen = await page.evaluate(() => document.activeElement.matches('.color-swatch') &&
-        document.querySelector('.color-picker-popover').classList.contains('show') &&
-        getComputedStyle(document.activeElement).outlineStyle !== 'none');
+      const openParts = await page.evaluate(() => ({ swatch: document.activeElement.matches('.color-swatch'),
+        shown: document.querySelector('.color-picker-popover').classList.contains('show'),
+        outline: getComputedStyle(document.activeElement).outlineStyle, activeEl: document.activeElement.className || document.activeElement.tagName }));
+      const keyboardOpen = openParts.swatch && openParts.shown && openParts.outline !== 'none';
       await page.keyboard.press('Tab');
       const tabbed = await page.evaluate(() => document.activeElement.matches('.color-swatch'));
       await page.evaluate(() => renderSidebar());
       const retained = await page.evaluate(() => document.activeElement.matches('.color-swatch') &&
         document.querySelector('.color-picker-popover').classList.contains('show'));
       keyboardWorks = keyboardOpen && tabbed && retained;
+      keyboardDetail = JSON.stringify({ beforeEnter, openParts, tabbed, retained, active: await page.evaluate(() => document.activeElement.className || document.activeElement.tagName) });
     }
-    check(`layout 9 ${w}: keyboard opens palette, tabs swatches, and retains focus on updates`, keyboardWorks);
+    check(`layout 9 ${w}: keyboard opens palette, tabs swatches, and retains focus on updates`, keyboardWorks, keyboardDetail);
     await shot(w, h, 'drawer-palette');
     if (keyboardColors) await page.keyboard.press('Escape');
     else await page.evaluate(() => document.getElementById('color-picker-popover').classList.remove('show'));
@@ -334,7 +363,7 @@ async function layoutRegressions(browser, base) {
 (async () => {
   require(path.join(__dirname, '..', 'server.js'));
   const base = `http://localhost:${PORT}`;
-  const browser = await chromium.launch({ executablePath: process.env.PW_CHROMIUM || undefined });
+  const browser = await launchBrowser();
   const guestCtx = await browser.newContext({ viewport: { width: 1280, height: 720 } });
 
   await layoutRegressions(browser, base);
@@ -394,15 +423,23 @@ async function layoutRegressions(browser, base) {
     await host.waitForTimeout(500);
     const f = await fits(host);
     check(`${vp.name}: room fits (no overflow, hand on screen)`, f.length === 0, f.join('; '));
+    await host.bringToFront();
+    await host.waitForTimeout(300);
     await host.screenshot({ path: `${SHOTS}/${vp.name}-4-voting.png` });
     const a = await axeSerious(host);
     check(`${vp.name}: room axe clean`, a.length === 0, a.join('; '));
 
+    // WebKit slows animations on a page it treats as hidden; the host is the
+    // page the screenshots show, so keep it in front.
+    await host.bringToFront();
     await host.click('.btn-reveal');
     await host.waitForTimeout(250);
     await host.screenshot({ path: `${SHOTS}/${vp.name}-5-countdown.png` });
     await host.waitForSelector('.consensus-pill.show');
     await host.waitForTimeout(1300);
+    const flipped = await host.waitForFunction(() => [...document.querySelectorAll('#stage-cards .stage-card-inner')]
+      .filter(el => el.classList.contains('flip')).every(el => new DOMMatrix(getComputedStyle(el).transform).m11 < -0.99), null, { timeout: 5000 }).then(() => true, () => false);
+    check(`${vp.name}: the reveal flip ends`, flipped);
     await host.screenshot({ path: `${SHOTS}/${vp.name}-6-revealed.png` });
     const f2 = await fits(host);
     check(`${vp.name}: revealed fits`, f2.length === 0, f2.join('; '));
